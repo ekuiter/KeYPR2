@@ -133,7 +133,8 @@ public class VerificationSystem {
                         partialProofBefore != null
                                 ? proofContext.toPath().resolve("problem.key").toFile()
                                 : proofContext,
-                        mode, optimizationStrategy, "main");
+                        mode, optimizationStrategy, "main",
+                        new Model.Node(method, bindings).isComplete());
                 writeProof(proof);
             }
         }
@@ -173,7 +174,7 @@ public class VerificationSystem {
                 Matcher matcher = PATTERN.matcher(spec.trim());
                 if (!matcher.find())
                     throw new IllegalArgumentException(
-                            "invalid function specification, expected <type> <name>(<parameters>)");
+                            "invalid function specification " + spec + ", expected <type> <name>(<parameters>)");
                 type = matcher.group(1).trim();
                 name = matcher.group(2).trim();
                 parameters = new ArrayList<>();
@@ -293,6 +294,14 @@ public class VerificationSystem {
                                 .toCallString());
             }
 
+            String getLocSet(String assignable) {
+                return assignable.equals("\\everything")
+                        ? "\\set_minus(\\everything, \\nothing)"
+                        : assignable.equals("\\nothing")
+                        ? "\\set_minus(\\nothing, \\everything)"
+                        : assignable;
+            }
+
             String generateAbstractMethod(Model.Method callingMethod, Signature signature) {
                 Signature requiresSignature =
                         scopedSignature(callingMethod, signature).withType("boolean").appendName("_requires");
@@ -321,7 +330,7 @@ public class VerificationSystem {
                         .orElse(";");
                 String assignableExpansion = binding
                         .map(_binding -> " { return " +
-                                ((HoareTriple) _binding.destination.hoareTriple).assignable + "; }")
+                                getLocSet(((HoareTriple) _binding.destination.hoareTriple).assignable) + "; }")
                         .orElse(";");
                 return String.format("%s\n%s%s%s",
                         binding.filter(_binding -> !_binding.destination.contractCalls().isEmpty())

@@ -487,8 +487,8 @@ public class Model {
             return verificationPlan;
         }
 
-        VerificationAttempt verificationAttempt() {
-            return new VerificationAttempt(this);
+        VerificationAttempt verificationAttempt(VerificationSystem verificationSystem) {
+            return new VerificationAttempt(this, verificationSystem);
         }
     }
 
@@ -550,15 +550,17 @@ public class Model {
     public static class VerificationAttempt {
         VerificationPlan verificationPlan;
         List<Node> sortedNodes;
+        VerificationSystem verificationSystem;
         Map<Node, VerificationSystem.State> map = new HashMap<>();
 
-        VerificationAttempt(VerificationPlan verificationPlan) {
+        VerificationAttempt(VerificationPlan verificationPlan, VerificationSystem verificationSystem) {
             this.verificationPlan = verificationPlan;
             // this is ONE topological sorting, others are possible.
             // this is not interesting if we restrict ourselves to one CPU core and no network partitions.
             this.sortedNodes = verificationPlan.nodes.stream()
                     .sorted(Comparator.comparing(node -> node.bindings.size()))
                     .collect(Collectors.toList());
+            this.verificationSystem = verificationSystem;
         }
 
         @Override
@@ -566,7 +568,7 @@ public class Model {
             return sortedNodes.toString();
         }
 
-        boolean verify(VerificationSystem verificationSystem) {
+        void verify() {
             for (Node node : sortedNodes) {
                 if (verificationPlan.edges.stream().noneMatch(edge -> edge.targetNode.equals(node)))
                     map.put(node, verificationSystem.beginProof(node.method, node.bindings));
@@ -577,12 +579,18 @@ public class Model {
                     map.put(node, verificationSystem.continueProof(map.get(edge.sourceNode), edge.newBindings()));
                 }
             }
-            return isCorrect(verificationSystem);
         }
 
-        boolean isCorrect(VerificationSystem verificationSystem) {
-            return sortedNodes.stream().filter(Node::isComplete).map(map::get)
-                    .allMatch(verificationSystem::completeProof);
+        Set<VerificationSystem.State> failedProofs() {
+            return sortedNodes.stream()
+                    .filter(Node::isComplete)
+                    .map(map::get)
+                    .filter(state -> !verificationSystem.completeProof(state))
+                    .collect(Collectors.toSet());
+        }
+
+        boolean isCorrect() {
+            return failedProofs().isEmpty();
         }
     }
 }

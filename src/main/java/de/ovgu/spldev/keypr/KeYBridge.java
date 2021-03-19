@@ -35,11 +35,11 @@ import java.io.File;
 import java.io.IOException;
 import java.util.*;
 import java.util.function.Consumer;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 class KeYBridge {
-    enum Mode {HEADLESS, GUI, DEBUG}
+    @SuppressWarnings("unused")
+    enum Mode {AUTO, DEBUG}
 
     static class OptimizationStrategy {
         @SuppressWarnings("unused")
@@ -112,7 +112,7 @@ class KeYBridge {
         mode = _mode;
         UserInterfaceControl userInterface;
         this.optimizationStrategy = optimizationStrategy;
-        if (mode == Mode.GUI || mode == Mode.DEBUG) {
+        if (mode == Mode.DEBUG) {
             mainWindow = Utils.runSilentAndReturn(MainWindow::getInstance, false);
             userInterface = mainWindow.getUserInterface();
             mainWindow.getNotificationManager().removeNotificationTask(NotificationEventID.PROOF_CLOSED);
@@ -133,11 +133,11 @@ class KeYBridge {
     }
 
     static Proof proveContract(File file, Mode mode, OptimizationStrategy optimizationStrategy,
-                               @SuppressWarnings("SameParameterValue") String name) {
+                               @SuppressWarnings("SameParameterValue") String name, boolean allowDebugger) {
         System.out.println("Loading " + file);
         KeYBridge keYBridge = new KeYBridge(file, mode, optimizationStrategy);
         Contract contract = keYBridge.getContract(name);
-        return keYBridge.proveContract(contract);
+        return keYBridge.proveContract(contract, allowDebugger);
     }
 
     void debugger() {
@@ -224,11 +224,12 @@ class KeYBridge {
         return loadedProof != null ? loadedProof : beginProof(contract);
     }
 
-    Proof proveContract(Contract contract) {
+    Proof proveContract(Contract contract, boolean allowDebugger) {
         Proof proof = beginOrContinueProof(contract);
+        optimizationStrategy.updateStrategySettings(ProofSettings.DEFAULT_SETTINGS.getStrategySettings());
         optimizationStrategy.updateStrategySettings(proof.getSettings().getStrategySettings());
         keYEnvironment.getProofControl().startAndWaitForAutoMode(proof);
-        if (mode == Mode.DEBUG)
+        if (mode == Mode.DEBUG && !proof.closed() && allowDebugger)
             debugger();
         return proof;
     }

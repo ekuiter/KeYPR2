@@ -6,6 +6,8 @@ import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
+import com.github.javaparser.printer.DefaultPrettyPrinter;
+import com.github.javaparser.printer.configuration.DefaultPrinterConfiguration;
 import de.ovgu.featureide.fm.core.analysis.cnf.CNF;
 import de.ovgu.featureide.fm.core.analysis.cnf.formula.FeatureModelFormula;
 import de.ovgu.featureide.fm.core.analysis.cnf.generator.configuration.AllConfigurationGenerator;
@@ -21,7 +23,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.function.Consumer;
@@ -35,18 +36,14 @@ public class Main {
         KeYBridge.initialize();
         VerificationSystem verificationSystem =
                 new VerificationSystem.KeY(
-                        KeYBridge.Mode.HEADLESS,
+                        KeYBridge.Mode.AUTO,
                         KeYBridge.OptimizationStrategy.DEF_OPS,
                         Paths.get("proofRepository"));
         //verificationSystem = new VerificationSystem(Paths.get("proofRepository"));
-        boolean verified = verifyFeatureIDEProject(
-                Paths.get("examples/list"),
-                verificationSystem);
-        System.out.println(verified ? "VERIFICATION SUCCESSFUL" : "VERIFICATION FAILED");
-        System.exit(verified ? 0 : 1);
+        verifyFeatureIDEProject(Paths.get("examples/list"), verificationSystem);
     }
 
-    private static boolean verifyFeatureIDEProject(@SuppressWarnings("SameParameterValue") Path path,
+    private static void verifyFeatureIDEProject(@SuppressWarnings("SameParameterValue") Path path,
                                                    VerificationSystem verificationSystem) {
         Model.SoftwareProductLine spl = getSoftwareProductLine(path);
         Model.BindingGraph prunedBindingGraph = spl.program().prunedBindingGraph(spl);
@@ -54,7 +51,13 @@ public class Main {
         Model.VerificationPlan verificationPlan =
                 prunedBindingGraph.someVerificationPlan().removeDeadEnds().combineLinearSubPaths();
         render(verificationPlan.toDot(), verificationSystem.proofRepositoryPath, "verificationPlan");
-        return verificationPlan.verificationAttempt().verify(verificationSystem);
+        Model.VerificationAttempt verificationAttempt = verificationPlan.verificationAttempt(verificationSystem);
+        verificationAttempt.verify();
+        if (!verificationAttempt.isCorrect()) {
+            System.out.println("Failed proofs:");
+            verificationAttempt.failedProofs().forEach(System.out::println);
+        }
+        System.out.println(verificationAttempt.isCorrect() ? "VERIFICATION SUCCESSFUL" : "VERIFICATION FAILED");
     }
 
     private static Model.SoftwareProductLine getSoftwareProductLine(Path path) {
@@ -86,40 +89,49 @@ public class Main {
                                 super.visit(n, methods);
                                 Set<String> implementationCalls = new HashSet<>(), contractCalls = new HashSet<>();
                                 Node.BreadthFirstIterator bfi = new Node.BreadthFirstIterator(n);
-                                while (bfi.hasNext()) {
-                                    Node n2 = bfi.next();
-                                    if (n2 instanceof MethodCallExpr) {
-                                        implementationCalls.add(((MethodCallExpr) n2).getName().asString());
-                                    }
-                                }
                                 final String[] contract = {"true", "true", "\\everything"};
                                 Set<String> signatures = new HashSet<>();
+                                n.getAllContainedComments().forEach(comment -> {
+                                    String content = comment.getContent().trim();
+                                    if (content.startsWith("CALLS"))
+                                        signatures.add(content.split("CALLS", 2)[1]);
+                                });
+                                while (bfi.hasNext()) {
+                                    Node n2 = bfi.next();
+                                    if (n2 instanceof MethodCallExpr)
+                                        implementationCalls.add(((MethodCallExpr) n2).getName().asString());
+                                }
                                 n.getComment().ifPresent(comment -> {
                                     if (comment.getContent().contains("\\original"))
                                         contractCalls.add("original");
                                     Matcher matcher = Pattern.compile("@.*requires(.*)").matcher(comment.getContent());
                                     if (matcher.find())
                                         contract[0] = matcher.group(1).trim();
+                                    if (contract[0].endsWith(";"))
+                                        contract[0] = contract[0].substring(0, contract[0].length() - 1);
                                     matcher = Pattern.compile("@.*ensures(.*)").matcher(comment.getContent());
                                     if (matcher.find())
                                         contract[1] = matcher.group(1).trim();
+                                    if (contract[1].endsWith(";"))
+                                        contract[1] = contract[1].substring(0, contract[1].length() - 1);
                                     matcher = Pattern.compile("@.*assignable(.*)").matcher(comment.getContent());
                                     if (matcher.find())
                                         contract[2] = matcher.group(1).trim();
-                                    Arrays.stream(comment.getContent().split("\\n")).forEach(line -> {
-                                        Matcher _matcher = Pattern.compile("@.*signature(.*)").matcher(line);
-                                        if (_matcher.find())
-                                            signatures.add(_matcher.group(1).trim());
-                                    });
+                                    if (contract[2].endsWith(";"))
+                                        contract[2] = contract[2].substring(0, contract[2].length() - 1);
                                     comment.remove();
                                 });
                                 methodNames.add(n.getName().asString());
                                 // Assumption: If class A != class B and there are methods A.m1 and B.m2, m1 != m2.
                                 // Basically, this forbids late binding / polymorphism.
+                                if (contractCalls.contains("original"))
+                                    signatures.add(new VerificationSystem.KeY.Signature(n.getDeclarationAsString())
+                                            .withName("original").toString());
                                 methods.add(new Model.Method(feature, n.getName().asString(),
                                         new VerificationSystem.KeY.HoareTriple(signatures,
-                                                implementationCalls, contractCalls,
-                                                contract[0], n.toString(), contract[1], contract[2])));
+                                                implementationCalls, contractCalls, contract[0],
+                                                new DefaultPrettyPrinter(new DefaultPrinterConfiguration()).print(n),
+                                                contract[1], contract[2])));
                             }
                         }.visit(compilationUnit, methods);
                     } catch (IOException ignored) {
