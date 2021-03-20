@@ -36,15 +36,16 @@ public class Main {
         KeYBridge.initialize();
         VerificationSystem verificationSystem =
                 new VerificationSystem.KeY(
-                        KeYBridge.Mode.AUTO,
+                        KeYBridge.Mode.DEBUG,
                         KeYBridge.OptimizationStrategy.DEF_OPS,
                         Paths.get("proofRepository"));
         //verificationSystem = new VerificationSystem(Paths.get("proofRepository"));
-        verifyFeatureIDEProject(Paths.get("examples/list"), verificationSystem);
+        verifyFeatureIDEProject(Paths.get("examples/IntList"), verificationSystem, "Snoc::insert");
     }
 
     private static void verifyFeatureIDEProject(@SuppressWarnings("SameParameterValue") Path path,
-                                                   VerificationSystem verificationSystem) {
+                                                VerificationSystem verificationSystem,
+                                                @SuppressWarnings("SameParameterValue") String focusOnMethod) {
         Model.SoftwareProductLine spl = getSoftwareProductLine(path);
         Model.BindingGraph prunedBindingGraph = spl.program().prunedBindingGraph(spl);
         render(prunedBindingGraph.toDot(), verificationSystem.proofRepositoryPath, "prunedBindingGraph");
@@ -52,7 +53,7 @@ public class Main {
                 prunedBindingGraph.someVerificationPlan().removeDeadEnds().combineLinearSubPaths();
         render(verificationPlan.toDot(), verificationSystem.proofRepositoryPath, "verificationPlan");
         Model.VerificationAttempt verificationAttempt = verificationPlan.verificationAttempt(verificationSystem);
-        verificationAttempt.verify();
+        verificationAttempt.verify(focusOnMethod);
         if (!verificationAttempt.isCorrect()) {
             System.out.println("Failed proofs:");
             verificationAttempt.failedProofs().forEach(System.out::println);

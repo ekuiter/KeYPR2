@@ -568,24 +568,25 @@ public class Model {
             return sortedNodes.toString();
         }
 
-        void verify() {
-            for (Node node : sortedNodes) {
-                if (verificationPlan.edges.stream().noneMatch(edge -> edge.targetNode.equals(node)))
-                    map.put(node, verificationSystem.beginProof(node.method, node.bindings));
-                else {
-                    @SuppressWarnings("OptionalGetWithoutIsPresent") Edge edge = verificationPlan.edges.stream()
-                            .filter(_edge -> _edge.targetNode.equals(node))
-                            .findFirst().get();
-                    map.put(node, verificationSystem.continueProof(map.get(edge.sourceNode), edge.newBindings()));
+        void verify(String focusOnMethod) {
+            for (Node node : sortedNodes)
+                if (focusOnMethod == null || focusOnMethod.equals(node.method.toString())) {
+                    if (verificationPlan.edges.stream().noneMatch(edge -> edge.targetNode.equals(node)))
+                        map.put(node, verificationSystem.beginProof(node.method, node.bindings));
+                    else {
+                        @SuppressWarnings("OptionalGetWithoutIsPresent") Edge edge = verificationPlan.edges.stream()
+                                .filter(_edge -> _edge.targetNode.equals(node))
+                                .findFirst().get();
+                        map.put(node, verificationSystem.continueProof(map.get(edge.sourceNode), edge.newBindings()));
+                    }
                 }
-            }
         }
 
         Set<VerificationSystem.State> failedProofs() {
             return sortedNodes.stream()
                     .filter(Node::isComplete)
                     .map(map::get)
-                    .filter(state -> !verificationSystem.completeProof(state))
+                    .filter(state -> state != null && !verificationSystem.completeProof(state))
                     .collect(Collectors.toSet());
         }
 
