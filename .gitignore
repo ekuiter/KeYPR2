@@ -80,5 +80,4 @@ fabric.properties
 .idea/compiler.xml
 .idea/jarRepositories.xml
 
-examples
-proofRepository
+caseStudy

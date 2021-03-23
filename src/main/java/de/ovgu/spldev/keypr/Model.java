@@ -256,7 +256,7 @@ public class Model {
             return new BindingGraph(bindingGraphNodes());
         }
 
-        BindingGraph prunedBindingGraph(SoftwareProductLine softwareProductLine) {
+        PrunedBindingGraph prunedBindingGraph(SoftwareProductLine softwareProductLine) {
             return new PrunedBindingGraph(softwareProductLine, bindingGraphNodes());
         }
     }
@@ -410,10 +410,28 @@ public class Model {
         VerificationPlan someVerificationPlan() {
             return new VerificationPlanGenerator(this).iterator().next();
         }
+
+        VerificationPlan maxPartialReuseVerificationPlan() {
+            // minimize all verification plans, then choose the one with most nodes (and therefore most partial reuse)
+            HashMap<VerificationPlan, Integer> scores = new HashMap<>();
+            for (VerificationPlan verificationPlan : new VerificationPlanGenerator(this)) {
+                VerificationPlan optimizedVerificationPlan = verificationPlan.removeDeadEnds().combineLinearSubPaths();
+                scores.put(optimizedVerificationPlan, optimizedVerificationPlan.nodes.size());
+            }
+            //noinspection ConstantConditions
+            return scores.entrySet().stream().max(Map.Entry.comparingByValue()).orElse(null).getKey();
+        }
+
+        VerificationPlan minPartialProofReuseVerificationPlan() {
+            return someVerificationPlan().optimizedProductBased();
+        }
     }
 
     public static class PrunedBindingGraph extends BindingGraph {
+        SoftwareProductLine softwareProductLine;
+
         PrunedBindingGraph(SoftwareProductLine softwareProductLine, Set<Node> nodes) {
+            this.softwareProductLine = softwareProductLine;
             this.nodes = prune(softwareProductLine, nodes);
             this.edges = inferEdges(this.nodes);
         }
@@ -424,6 +442,16 @@ public class Model {
                             softwareProductLine.derivedMethods(configuration).contains(node.method) &&
                                     softwareProductLine.derivedBindings(configuration).containsAll(node.bindings)))
                     .collect(Collectors.toSet());
+        }
+
+        HashMap<Node, Integer> getCompleteNodeOccurrences() {
+            HashMap<Node, Integer> occurrences = new HashMap<>();
+            nodes.stream().filter(Node::isComplete).forEach(node -> occurrences.put(node,
+                    (int) softwareProductLine.configurations.stream().filter(configuration ->
+                            softwareProductLine.derivedMethods(configuration).contains(node.method) &&
+                                    softwareProductLine.derivedBindings(configuration).containsAll(node.bindings))
+                            .count()));
+            return occurrences;
         }
     }
 
@@ -482,6 +510,15 @@ public class Model {
                 } else
                     done = true;
             }
+            verificationPlan.bindingGraph.nodes = verificationPlan.nodes;
+            verificationPlan.bindingGraph.edges = verificationPlan.edges;
+            return verificationPlan;
+        }
+
+        VerificationPlan optimizedProductBased() {
+            VerificationPlan verificationPlan = new VerificationPlan(bindingGraph, nodes, edges);
+            verificationPlan.nodes = verificationPlan.nodes.stream().filter(Node::isComplete).collect(Collectors.toSet());
+            verificationPlan.edges = new HashSet<>();
             verificationPlan.bindingGraph.nodes = verificationPlan.nodes;
             verificationPlan.bindingGraph.edges = verificationPlan.edges;
             return verificationPlan;
@@ -588,6 +625,36 @@ public class Model {
                     .map(map::get)
                     .filter(state -> state != null && !verificationSystem.completeProof(state))
                     .collect(Collectors.toSet());
+        }
+
+        HashMap<String, List<Integer>> getStatisticsMap(HashMap<Node, Integer> occurrences) {
+            HashMap<String, List<Integer>> statisticsMap = new HashMap<>();
+            for (Node node : sortedNodes)
+                if (map.get(node) != null) {
+                    List<Integer> statistics = new ArrayList<>(map.get(node).getStatistics());
+                    statistics.add(occurrences.get(node));
+                    statisticsMap.put(String.format("%s_%d", node.toString(), node.hashCode()), statistics);
+                }
+            return statisticsMap;
+        }
+
+        static List<Integer> addStatistics(List<Integer> statistics1, List<Integer> statistics2) {
+            if (statistics1 == null)
+                return statistics2;
+            List<Integer> statistics = new ArrayList<>(statistics1);
+            statistics.set(4, statistics1.get(4) + statistics2.get(4));
+            return statistics;
+        }
+
+        static HashMap<String, List<Integer>> getStatisticsMap(List<HashMap<String, List<Integer>>> statisticsMaps) {
+            HashMap<String, List<Integer>> newStatisticsMap = new HashMap<>();
+            for (HashMap<String, List<Integer>> statisticsMap : statisticsMaps)
+                for (Map.Entry<String, List<Integer>> entry : statisticsMap.entrySet())
+                    newStatisticsMap.put(entry.getKey(),
+                            addStatistics(newStatisticsMap.get(entry.getKey()), entry.getValue()));
+            for (String key : newStatisticsMap.keySet())
+                newStatisticsMap.get(key).set(4, newStatisticsMap.get(key).get(4) / statisticsMaps.size());
+            return newStatisticsMap;
         }
 
         boolean isCorrect() {

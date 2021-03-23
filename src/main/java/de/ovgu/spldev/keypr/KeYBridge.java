@@ -42,20 +42,24 @@ class KeYBridge {
     enum Mode {AUTO, DEBUG}
 
     static class OptimizationStrategy {
-        @SuppressWarnings("unused")
-        static OptimizationStrategy DEFAULT = new OptimizationStrategy(
-                10000, 5 * 60 * 1000, StrategyProperties.NON_LIN_ARITH_NONE);
-        static OptimizationStrategy DEF_OPS = new OptimizationStrategy(
-                10000, 5 * 60 * 1000, StrategyProperties.NON_LIN_ARITH_DEF_OPS);
-
         final int maxSteps;
         final long timeout;
         final String arithmeticTreatment;
+        final String stopMode;
 
-        OptimizationStrategy(int maxSteps, int timeout, String arithmeticTreatment) {
+        OptimizationStrategy(int maxSteps, int timeout, String arithmeticTreatment, String stopMode) {
             this.maxSteps = maxSteps;
             this.timeout = timeout;
             this.arithmeticTreatment = arithmeticTreatment;
+            this.stopMode = stopMode;
+        }
+
+        OptimizationStrategy(String arithmeticTreatment, String stopMode) {
+            this(10000, 5 * 60 * 1000, arithmeticTreatment, stopMode);
+        }
+
+        OptimizationStrategy() {
+            this(StrategyProperties.NON_LIN_ARITH_NONE, StrategyProperties.STOPMODE_DEFAULT);
         }
 
         void updateStrategySettings(StrategySettings strategySettings) {
@@ -63,6 +67,7 @@ class KeYBridge {
             strategySettings.setTimeout(timeout);
             StrategyProperties activeStrategyProperties = strategySettings.getActiveStrategyProperties();
             activeStrategyProperties.setProperty(StrategyProperties.NON_LIN_ARITH_OPTIONS_KEY, arithmeticTreatment);
+            activeStrategyProperties.setProperty(StrategyProperties.STOPMODE_OPTIONS_KEY, stopMode);
             strategySettings.setActiveStrategyProperties(activeStrategyProperties);
         }
     }

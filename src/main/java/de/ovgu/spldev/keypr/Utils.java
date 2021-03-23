@@ -1,5 +1,8 @@
 package de.ovgu.spldev.keypr;
 
+import guru.nidi.graphviz.engine.Format;
+import guru.nidi.graphviz.engine.Graphviz;
+
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -99,6 +102,16 @@ class Utils {
 
         public String toString() {
             return String.format("(%s, %s)", first, second);
+        }
+    }
+
+    static void render(String dot, Path path, String name) {
+        Graphviz graph = Graphviz.fromString(dot);
+        try {
+            graph.render(Format.SVG).toFile(path.resolve(name + ".svg").toFile());
+            graph.render(Format.PNG).toFile(path.resolve(name + ".png").toFile());
+        } catch (IOException e) {
+            e.printStackTrace();
         }
     }
 }

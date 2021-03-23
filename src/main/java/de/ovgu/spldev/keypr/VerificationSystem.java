@@ -33,6 +33,9 @@ public class VerificationSystem {
     }
 
     public static class State {
+        List<Integer> getStatistics() {
+            return new ArrayList<>();
+        }
     }
 
     VerificationSystem(Path proofRepositoryPath) {
@@ -61,6 +64,7 @@ public class VerificationSystem {
             super(proofRepositoryPath);
             this.mode = mode;
             this.optimizationStrategy = optimizationStrategy;
+            KeYBridge.initialize();
         }
 
         public static class HoareTriple extends VerificationSystem.HoareTriple {
@@ -90,6 +94,7 @@ public class VerificationSystem {
             String partialProofBefore;
             String partialProofAfter;
             Boolean isClosed;
+            List<Integer> statistics;
 
             State(Model.Method method, Set<Model.Binding> bindings, String partialProofBefore) {
                 this.method = method;
@@ -106,6 +111,11 @@ public class VerificationSystem {
                                 binding.destination.feature, binding.destination.name))
                         .collect(Collectors.joining("_"));
                 return str.substring(0, Math.min(str.length(), 80)) + "_" + hashCode();
+            }
+
+            @Override
+            List<Integer> getStatistics() {
+                return statistics;
             }
 
             File createProofContext() {
@@ -125,6 +135,12 @@ public class VerificationSystem {
                 Utils.writeFile(proofContextPath.resolve("proof.key"), partialProofAfter);
                 Utils.writeFile(proofContextPath.resolve("statistics.txt"),
                         (proof.closed() ? "closed" : "open") + "\n" + proof.getStatistics().toString());
+                statistics = new ArrayList<>();
+                statistics.add(proof.openGoals().size());
+                statistics.add(proof.getStatistics().nodes);
+                statistics.add(proof.getStatistics().branches);
+                statistics.add(proof.getStatistics().symbExApps);
+                statistics.add((int) proof.getStatistics().autoModeTimeInMillis);
             }
 
             void verify() {

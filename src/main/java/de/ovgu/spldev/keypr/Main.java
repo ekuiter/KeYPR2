@@ -16,52 +16,91 @@ import de.ovgu.featureide.fm.core.init.FMCoreLibrary;
 import de.ovgu.featureide.fm.core.init.LibraryManager;
 import de.ovgu.featureide.fm.core.io.manager.FeatureModelManager;
 import de.ovgu.featureide.fm.core.job.LongRunningWrapper;
-import guru.nidi.graphviz.engine.Format;
-import guru.nidi.graphviz.engine.Graphviz;
+import de.uka.ilkd.key.strategy.StrategyProperties;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.HashSet;
-import java.util.Set;
+import java.util.*;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class Main {
+    // binding graphs represent a continuum of possible analyses. here are some well-known supported ones:
+    @SuppressWarnings("unused")
+    enum AnalysisKind {ANY, OPTIMIZED_PRODUCT_BASED, FEATURE_FAMILY_BASED}
+
+    // set path to FeatureIDE project that should be verified
+    static Path path = Paths.get("caseStudy/IntListKeYPR");
+
+    // set KeY parameters and target directory
+    static VerificationSystem.KeY verificationSystem = new VerificationSystem.KeY(
+            KeYBridge.Mode.AUTO,
+            new KeYBridge.OptimizationStrategy(
+                    StrategyProperties.NON_LIN_ARITH_DEF_OPS,
+                    StrategyProperties.STOPMODE_NONCLOSE),
+            Paths.get("caseStudy/proofRepository"));
+
+    // set kind of performed analysis
+    static AnalysisKind analysisKind = AnalysisKind.OPTIMIZED_PRODUCT_BASED;
+
+    // only verify the method "<feature>::<name>", useful for debugging
+    static String focusOnMethod = null;
+
+    // number of repetitions for evaluation purposes
+    static int N = 2;
+
     public static void main(String[] args) {
-        KeYBridge.initialize();
-        VerificationSystem verificationSystem =
-                new VerificationSystem.KeY(
-                        KeYBridge.Mode.DEBUG,
-                        KeYBridge.OptimizationStrategy.DEF_OPS,
-                        Paths.get("proofRepository"));
-        //verificationSystem = new VerificationSystem(Paths.get("proofRepository"));
-        verifyFeatureIDEProject(Paths.get("examples/IntList"), verificationSystem, "Snoc::insert");
+        List<HashMap<String, List<Integer>>> statistics = new ArrayList<>();
+        // warm-up run
+        verifyFeatureIDEProject(path, verificationSystem, analysisKind, focusOnMethod);
+        // actual evaluation
+        for (int i = 0; i < N; i++)
+            statistics.add(verifyFeatureIDEProject(path, verificationSystem, analysisKind, focusOnMethod));
+        Model.VerificationAttempt.getStatisticsMap(statistics).forEach(
+                (k, v) -> System.out.printf("%s,%s%n", k, v.stream()
+                        .map(Object::toString).collect(Collectors.joining(","))));
     }
 
-    private static void verifyFeatureIDEProject(@SuppressWarnings("SameParameterValue") Path path,
-                                                VerificationSystem verificationSystem,
-                                                @SuppressWarnings("SameParameterValue") String focusOnMethod) {
+    @SuppressWarnings("SameParameterValue")
+    static HashMap<String, List<Integer>> verifyFeatureIDEProject(Path path, VerificationSystem verificationSystem,
+                                                                  AnalysisKind analysisKind, String focusOnMethod) {
+        return verifyFeatureIDEProject(path, verificationSystem,
+                analysisKind.equals(AnalysisKind.OPTIMIZED_PRODUCT_BASED)
+                        ? Model.BindingGraph::minPartialProofReuseVerificationPlan
+                        : analysisKind.equals(AnalysisKind.FEATURE_FAMILY_BASED)
+                        ? Model.BindingGraph::maxPartialReuseVerificationPlan
+                        : Model.BindingGraph::someVerificationPlan,
+                focusOnMethod);
+    }
+
+    static HashMap<String, List<Integer>> verifyFeatureIDEProject(
+            @SuppressWarnings("SameParameterValue") Path path, VerificationSystem verificationSystem,
+            Function<Model.PrunedBindingGraph, Model.VerificationPlan> fn,
+            @SuppressWarnings("SameParameterValue") String focusOnMethod) {
         Model.SoftwareProductLine spl = getSoftwareProductLine(path);
-        Model.BindingGraph prunedBindingGraph = spl.program().prunedBindingGraph(spl);
-        render(prunedBindingGraph.toDot(), verificationSystem.proofRepositoryPath, "prunedBindingGraph");
-        Model.VerificationPlan verificationPlan =
-                prunedBindingGraph.someVerificationPlan().removeDeadEnds().combineLinearSubPaths();
-        render(verificationPlan.toDot(), verificationSystem.proofRepositoryPath, "verificationPlan");
+        Model.PrunedBindingGraph prunedBindingGraph = spl.program().prunedBindingGraph(spl);
+        Utils.render(prunedBindingGraph.toDot(), verificationSystem.proofRepositoryPath, "prunedBindingGraph");
+        Model.VerificationPlan verificationPlan = fn.apply(prunedBindingGraph);
+        Utils.render(verificationPlan.toDot(), verificationSystem.proofRepositoryPath, "verificationPlan");
         Model.VerificationAttempt verificationAttempt = verificationPlan.verificationAttempt(verificationSystem);
         verificationAttempt.verify(focusOnMethod);
+        System.out.println("Statistics:");
+        System.out.println(verificationAttempt.getStatisticsMap(prunedBindingGraph.getCompleteNodeOccurrences()));
         if (!verificationAttempt.isCorrect()) {
             System.out.println("Failed proofs:");
             verificationAttempt.failedProofs().forEach(System.out::println);
         }
         System.out.println(verificationAttempt.isCorrect() ? "VERIFICATION SUCCESSFUL" : "VERIFICATION FAILED");
+        return verificationAttempt.getStatisticsMap(prunedBindingGraph.getCompleteNodeOccurrences());
     }
 
-    private static Model.SoftwareProductLine getSoftwareProductLine(Path path) {
+    static Model.SoftwareProductLine getSoftwareProductLine(Path path) {
         LibraryManager.registerLibrary(FMCoreLibrary.getInstance());
         IFeatureModel featureModel = FeatureModelManager.load(path.resolve("model.xml"));
         CNF cnf = new FeatureModelFormula(featureModel).getCNF();
@@ -147,15 +186,5 @@ public class Main {
         }
         methods.forEach(method -> method.hoareTriple.implementationCalls().retainAll(methodNames));
         return methods;
-    }
-
-    static void render(String dot, Path path, String name) {
-        Graphviz graph = Graphviz.fromString(dot);
-        try {
-            graph.render(Format.SVG).toFile(path.resolve(name + ".svg").toFile());
-            graph.render(Format.PNG).toFile(path.resolve(name + ".png").toFile());
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
     }
 }
