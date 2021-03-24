@@ -136,7 +136,7 @@ public class VerificationSystem {
                 Utils.writeFile(proofContextPath.resolve("statistics.txt"),
                         (proof.closed() ? "closed" : "open") + "\n" + proof.getStatistics().toString());
                 statistics = new ArrayList<>();
-                statistics.add(proof.openGoals().size());
+                statistics.add(new Model.Node(method, bindings).isComplete() ? proof.openGoals().size() : 0);
                 statistics.add(proof.getStatistics().nodes);
                 statistics.add(proof.getStatistics().branches);
                 statistics.add(proof.getStatistics().symbExApps);

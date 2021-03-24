@@ -25,6 +25,7 @@ import java.nio.file.Paths;
 import java.util.*;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -33,43 +34,64 @@ import java.util.stream.Stream;
 public class Main {
     // binding graphs represent a continuum of possible analyses. here are some well-known supported ones:
     @SuppressWarnings("unused")
-    enum AnalysisKind {ANY, OPTIMIZED_PRODUCT_BASED, FEATURE_FAMILY_BASED}
+    enum AnalysisKind {ANY, OPTIMIZED_PRODUCT_BASED, FAMILY_BASED, FEATURE_FAMILY_BASED}
 
     // set path to FeatureIDE project that should be verified
-    static Path path = Paths.get("caseStudy/IntListKeYPR");
-
+    static Path path;
     // set KeY parameters and target directory
-    static VerificationSystem.KeY verificationSystem = new VerificationSystem.KeY(
-            KeYBridge.Mode.AUTO,
-            new KeYBridge.OptimizationStrategy(
-                    StrategyProperties.NON_LIN_ARITH_DEF_OPS,
-                    StrategyProperties.STOPMODE_NONCLOSE),
-            Paths.get("caseStudy/proofRepository"));
-
+    static Supplier<VerificationSystem.KeY> verificationSystemSupplier = () -> {
+        HashMap<String, String> strategyProperties = new HashMap<>();
+        strategyProperties.put(StrategyProperties.NON_LIN_ARITH_OPTIONS_KEY, StrategyProperties.NON_LIN_ARITH_DEF_OPS);
+        strategyProperties.put(StrategyProperties.STOPMODE_OPTIONS_KEY, StrategyProperties.STOPMODE_NONCLOSE);
+        strategyProperties.put(StrategyProperties.METHOD_OPTIONS_KEY, StrategyProperties.METHOD_NONE);
+        return new VerificationSystem.KeY(
+                KeYBridge.Mode.AUTO,
+                new KeYBridge.OptimizationStrategy(strategyProperties),
+                Paths.get("caseStudy/proofRepository"));
+    };
     // set kind of performed analysis
-    static AnalysisKind analysisKind = AnalysisKind.OPTIMIZED_PRODUCT_BASED;
-
+    static AnalysisKind analysisKind;
     // only verify the method "<feature>::<name>", useful for debugging
     static String focusOnMethod = null;
-
     // number of repetitions for evaluation purposes
-    static int N = 2;
+    static int N = 0;
+
+    // case study: optimized product-based
+    static {
+        path = Paths.get("caseStudy/IntList");
+        analysisKind = AnalysisKind.OPTIMIZED_PRODUCT_BASED;
+    }
+
+//    // case study: feature-family-based
+//    static {
+//        path = Paths.get("caseStudy/IntList");
+//        analysisKind = AnalysisKind.FEATURE_FAMILY_BASED;
+//    }
+
+    // case study: family-based (code generated from IntList project with FeatureIDE/FeatureHouse)
+//    static {
+//        path = Paths.get("caseStudy/IntListMetaProduct");
+//        analysisKind = AnalysisKind.FAMILY_BASED;
+//    }
 
     public static void main(String[] args) {
         List<HashMap<String, List<Integer>>> statistics = new ArrayList<>();
         // warm-up run
-        verifyFeatureIDEProject(path, verificationSystem, analysisKind, focusOnMethod);
+        verifyFeatureIDEProject(path, verificationSystemSupplier.get(), analysisKind, focusOnMethod);
         // actual evaluation
         for (int i = 0; i < N; i++)
-            statistics.add(verifyFeatureIDEProject(path, verificationSystem, analysisKind, focusOnMethod));
+            statistics.add(verifyFeatureIDEProject(
+                    path, verificationSystemSupplier.get(), analysisKind, focusOnMethod));
         Model.VerificationAttempt.getStatisticsMap(statistics).forEach(
                 (k, v) -> System.out.printf("%s,%s%n", k, v.stream()
                         .map(Object::toString).collect(Collectors.joining(","))));
     }
 
     @SuppressWarnings("SameParameterValue")
-    static HashMap<String, List<Integer>> verifyFeatureIDEProject(Path path, VerificationSystem verificationSystem,
-                                                                  AnalysisKind analysisKind, String focusOnMethod) {
+    static HashMap<String, List<Integer>> verifyFeatureIDEProject(
+            Path path, VerificationSystem.KeY verificationSystem, AnalysisKind analysisKind, String focusOnMethod) {
+        if (analysisKind.equals(AnalysisKind.FAMILY_BASED))
+            return verifyFamilyBased(path, verificationSystem);
         return verifyFeatureIDEProject(path, verificationSystem,
                 analysisKind.equals(AnalysisKind.OPTIMIZED_PRODUCT_BASED)
                         ? Model.BindingGraph::minPartialProofReuseVerificationPlan
@@ -90,14 +112,17 @@ public class Main {
         Utils.render(verificationPlan.toDot(), verificationSystem.proofRepositoryPath, "verificationPlan");
         Model.VerificationAttempt verificationAttempt = verificationPlan.verificationAttempt(verificationSystem);
         verificationAttempt.verify(focusOnMethod);
-        System.out.println("Statistics:");
-        System.out.println(verificationAttempt.getStatisticsMap(prunedBindingGraph.getCompleteNodeOccurrences()));
         if (!verificationAttempt.isCorrect()) {
             System.out.println("Failed proofs:");
             verificationAttempt.failedProofs().forEach(System.out::println);
         }
         System.out.println(verificationAttempt.isCorrect() ? "VERIFICATION SUCCESSFUL" : "VERIFICATION FAILED");
         return verificationAttempt.getStatisticsMap(prunedBindingGraph.getCompleteNodeOccurrences());
+    }
+
+    static HashMap<String, List<Integer>> verifyFamilyBased(Path path, VerificationSystem.KeY verificationSystem) {
+        return KeYBridge.proveAllContracts(path.toFile(), verificationSystem.proofRepositoryPath,
+                verificationSystem.mode, verificationSystem.optimizationStrategy);
     }
 
     static Model.SoftwareProductLine getSoftwareProductLine(Path path) {

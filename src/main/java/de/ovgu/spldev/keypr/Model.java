@@ -632,7 +632,7 @@ public class Model {
             for (Node node : sortedNodes)
                 if (map.get(node) != null) {
                     List<Integer> statistics = new ArrayList<>(map.get(node).getStatistics());
-                    statistics.add(occurrences.get(node));
+                    statistics.add(occurrences.get(node) != null ? occurrences.get(node) : 0);
                     statisticsMap.put(String.format("%s_%d", node.toString(), node.hashCode()), statistics);
                 }
             return statisticsMap;

@@ -33,6 +33,7 @@ import java.awt.event.WindowEvent;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
@@ -44,30 +45,23 @@ class KeYBridge {
     static class OptimizationStrategy {
         final int maxSteps;
         final long timeout;
-        final String arithmeticTreatment;
-        final String stopMode;
+        final HashMap<String, String> strategyProperties;
 
-        OptimizationStrategy(int maxSteps, int timeout, String arithmeticTreatment, String stopMode) {
+        OptimizationStrategy(int maxSteps, int timeout, HashMap<String, String> strategyProperties) {
             this.maxSteps = maxSteps;
             this.timeout = timeout;
-            this.arithmeticTreatment = arithmeticTreatment;
-            this.stopMode = stopMode;
+            this.strategyProperties = strategyProperties;
         }
 
-        OptimizationStrategy(String arithmeticTreatment, String stopMode) {
-            this(10000, 5 * 60 * 1000, arithmeticTreatment, stopMode);
-        }
-
-        OptimizationStrategy() {
-            this(StrategyProperties.NON_LIN_ARITH_NONE, StrategyProperties.STOPMODE_DEFAULT);
+        OptimizationStrategy(HashMap<String, String> strategyProperties) {
+            this(10000, 5 * 60 * 1000, strategyProperties);
         }
 
         void updateStrategySettings(StrategySettings strategySettings) {
             strategySettings.setMaxSteps(maxSteps);
             strategySettings.setTimeout(timeout);
             StrategyProperties activeStrategyProperties = strategySettings.getActiveStrategyProperties();
-            activeStrategyProperties.setProperty(StrategyProperties.NON_LIN_ARITH_OPTIONS_KEY, arithmeticTreatment);
-            activeStrategyProperties.setProperty(StrategyProperties.STOPMODE_OPTIONS_KEY, stopMode);
+            strategyProperties.forEach(activeStrategyProperties::setProperty);
             strategySettings.setActiveStrategyProperties(activeStrategyProperties);
         }
     }
@@ -143,6 +137,31 @@ class KeYBridge {
         KeYBridge keYBridge = new KeYBridge(file, mode, optimizationStrategy);
         Contract contract = keYBridge.getContract(name);
         return keYBridge.proveContract(contract, allowDebugger);
+    }
+
+    static HashMap<String, List<Integer>> proveAllContracts(File file, Path proofRepositoryPath,
+                                                            Mode mode, OptimizationStrategy optimizationStrategy) {
+        System.out.println("Loading " + file);
+        KeYBridge keYBridge = new KeYBridge(file, mode, optimizationStrategy);
+        HashMap<String, List<Integer>> statisticsMap = new HashMap<>();
+        for (Contract contract : keYBridge.getContracts()) {
+            System.out.println("Proving " + contract.getTarget().name().toString());
+            Proof proof = keYBridge.proveContract(contract, true);
+            Path proofContextPath = proofRepositoryPath.resolve(contract.getTarget().name().toString()
+                    .replace("::", "_"));
+            Utils.createDirectory(proofContextPath);
+            Utils.writeFile(proofContextPath.resolve("proof.key"), serializeProof(proof));
+            Utils.writeFile(proofContextPath.resolve("statistics.txt"),
+                    (proof.closed() ? "closed" : "open") + "\n" + proof.getStatistics().toString());
+            List<Integer> statistics = new ArrayList<>();
+            statistics.add(proof.openGoals().size());
+            statistics.add(proof.getStatistics().nodes);
+            statistics.add(proof.getStatistics().branches);
+            statistics.add(proof.getStatistics().symbExApps);
+            statistics.add((int) proof.getStatistics().autoModeTimeInMillis);
+            statisticsMap.put(contract.getTarget().name().toString(), statistics);
+        }
+        return statisticsMap;
     }
 
     void debugger() {
@@ -230,9 +249,8 @@ class KeYBridge {
     }
 
     Proof proveContract(Contract contract, boolean allowDebugger) {
-        Proof proof = beginOrContinueProof(contract);
         optimizationStrategy.updateStrategySettings(ProofSettings.DEFAULT_SETTINGS.getStrategySettings());
-        optimizationStrategy.updateStrategySettings(proof.getSettings().getStrategySettings());
+        Proof proof = beginOrContinueProof(contract);
         keYEnvironment.getProofControl().startAndWaitForAutoMode(proof);
         if (mode == Mode.DEBUG && !proof.closed() && allowDebugger)
             debugger();
