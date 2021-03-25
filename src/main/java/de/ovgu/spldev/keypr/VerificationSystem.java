@@ -57,13 +57,11 @@ public class VerificationSystem {
     }
 
     static class KeY extends VerificationSystem {
-        KeYBridge.Mode mode;
-        KeYBridge.OptimizationStrategy optimizationStrategy;
+        KeYBridge.Settings settings;
 
-        KeY(KeYBridge.Mode mode, KeYBridge.OptimizationStrategy optimizationStrategy, Path proofRepositoryPath) {
+        KeY(KeYBridge.Settings settings, Path proofRepositoryPath) {
             super(proofRepositoryPath);
-            this.mode = mode;
-            this.optimizationStrategy = optimizationStrategy;
+            this.settings = settings;
             KeYBridge.initialize();
         }
 
@@ -145,12 +143,12 @@ public class VerificationSystem {
 
             void verify() {
                 File proofContext = createProofContext();
+                boolean isComplete = new Model.Node(method, bindings).isComplete();
                 Proof proof = KeYBridge.proveContract(
                         partialProofBefore != null
                                 ? proofContext.toPath().resolve("problem.key").toFile()
-                                : proofContext,
-                        mode, optimizationStrategy, "main",
-                        new Model.Node(method, bindings).isComplete());
+                                : proofContext, settings, "main",
+                        isComplete, !isComplete);
                 writeProof(proof);
             }
         }

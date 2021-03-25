@@ -43,10 +43,13 @@ public class Main {
         HashMap<String, String> strategyProperties = new HashMap<>();
         strategyProperties.put(StrategyProperties.NON_LIN_ARITH_OPTIONS_KEY, StrategyProperties.NON_LIN_ARITH_DEF_OPS);
         strategyProperties.put(StrategyProperties.STOPMODE_OPTIONS_KEY, StrategyProperties.STOPMODE_NONCLOSE);
-        strategyProperties.put(StrategyProperties.METHOD_OPTIONS_KEY, StrategyProperties.METHOD_NONE);
+        strategyProperties.put(StrategyProperties.QUANTIFIERS_OPTIONS_KEY,
+                StrategyProperties.QUANTIFIERS_NON_SPLITTING_WITH_PROGS);
+        HashMap<String, String> partialProofStrategyProperties = new HashMap<>();
+        partialProofStrategyProperties.put(
+                StrategyProperties.QUANTIFIERS_OPTIONS_KEY, StrategyProperties.QUANTIFIERS_NON_SPLITTING);
         return new VerificationSystem.KeY(
-                KeYBridge.Mode.AUTO,
-                new KeYBridge.OptimizationStrategy(strategyProperties),
+                new KeYBridge.Settings(KeYBridge.Mode.AUTO, strategyProperties, partialProofStrategyProperties),
                 Paths.get("caseStudy/proofRepository"));
     };
     // set kind of performed analysis
@@ -63,16 +66,16 @@ public class Main {
     }
 
 //    // case study: feature-family-based
-//    static {
-//        path = Paths.get("caseStudy/IntList");
-//        analysisKind = AnalysisKind.FEATURE_FAMILY_BASED;
-//    }
+    static {
+        path = Paths.get("caseStudy/IntList");
+        analysisKind = AnalysisKind.FEATURE_FAMILY_BASED;
+    }
 
     // case study: family-based (code generated from IntList project with FeatureIDE/FeatureHouse)
-//    static {
-//        path = Paths.get("caseStudy/IntListMetaProduct");
-//        analysisKind = AnalysisKind.FAMILY_BASED;
-//    }
+    static {
+        path = Paths.get("caseStudy/IntListMetaProduct");
+        analysisKind = AnalysisKind.FAMILY_BASED;
+    }
 
     public static void main(String[] args) {
         List<HashMap<String, List<Integer>>> statistics = new ArrayList<>();
@@ -121,8 +124,8 @@ public class Main {
     }
 
     static HashMap<String, List<Integer>> verifyFamilyBased(Path path, VerificationSystem.KeY verificationSystem) {
-        return KeYBridge.proveAllContracts(path.toFile(), verificationSystem.proofRepositoryPath,
-                verificationSystem.mode, verificationSystem.optimizationStrategy);
+        return KeYBridge.proveAllContracts(path.toFile(),
+                verificationSystem.proofRepositoryPath, verificationSystem.settings);
     }
 
     static Model.SoftwareProductLine getSoftwareProductLine(Path path) {

@@ -23,6 +23,7 @@ import de.uka.ilkd.key.settings.ProofIndependentSettings;
 import de.uka.ilkd.key.settings.ProofSettings;
 import de.uka.ilkd.key.settings.StrategySettings;
 import de.uka.ilkd.key.speclang.Contract;
+import de.uka.ilkd.key.strategy.Strategy;
 import de.uka.ilkd.key.strategy.StrategyProperties;
 import de.uka.ilkd.key.util.KeYTypeUtil;
 import org.key_project.util.collection.ImmutableSet;
@@ -42,34 +43,40 @@ class KeYBridge {
     @SuppressWarnings("unused")
     enum Mode {AUTO, DEBUG}
 
-    static class OptimizationStrategy {
+    static class Settings {
+        final Mode mode;
         final int maxSteps;
         final long timeout;
         final HashMap<String, String> strategyProperties;
+        private HashMap<String, String> partialProofStrategyProperties;
 
-        OptimizationStrategy(int maxSteps, int timeout, HashMap<String, String> strategyProperties) {
+        Settings(Mode mode, int maxSteps, int timeout, HashMap<String, String> strategyProperties,
+                 HashMap<String, String> partialProofStrategyProperties) {
+            this.mode = mode;
             this.maxSteps = maxSteps;
             this.timeout = timeout;
             this.strategyProperties = strategyProperties;
+            this.partialProofStrategyProperties = partialProofStrategyProperties;
         }
 
-        OptimizationStrategy(HashMap<String, String> strategyProperties) {
-            this(10000, 5 * 60 * 1000, strategyProperties);
+        Settings(Mode mode, HashMap<String, String> strategyProperties,
+                 HashMap<String, String> partialProofStrategyProperties) {
+            this(mode, 10000, 5 * 60 * 1000, strategyProperties, partialProofStrategyProperties);
         }
 
-        void updateStrategySettings(StrategySettings strategySettings) {
-            strategySettings.setMaxSteps(maxSteps);
-            strategySettings.setTimeout(timeout);
-            StrategyProperties activeStrategyProperties = strategySettings.getActiveStrategyProperties();
-            strategyProperties.forEach(activeStrategyProperties::setProperty);
-            strategySettings.setActiveStrategyProperties(activeStrategyProperties);
+        StrategyProperties getStrategyProperties(StrategySettings strategySettings, boolean isPartialProof) {
+            HashMap<String, String> newStrategyProperties = new HashMap<>(strategyProperties);
+            if (isPartialProof)
+                newStrategyProperties.putAll(partialProofStrategyProperties);
+            StrategyProperties strategyProperties = strategySettings.getActiveStrategyProperties();
+            newStrategyProperties.forEach(strategyProperties::setProperty);
+            return strategyProperties;
         }
     }
 
-    final Mode mode;
     final KeYEnvironment<?> keYEnvironment;
     MainWindow mainWindow;
-    final OptimizationStrategy optimizationStrategy;
+    final Settings settings;
 
     static final ProverTaskListener bridgeProverTaskListener = new ProverTaskListener() {
         static final int STEP = 100;
@@ -107,11 +114,10 @@ class KeYBridge {
         ProofIndependentSettings.DEFAULT_INSTANCE.getViewSettings().setConfirmExit(false);
     }
 
-    KeYBridge(File file, Mode _mode, OptimizationStrategy optimizationStrategy) {
-        mode = _mode;
+    KeYBridge(File file, Settings settings) {
         UserInterfaceControl userInterface;
-        this.optimizationStrategy = optimizationStrategy;
-        if (mode == Mode.DEBUG) {
+        this.settings = settings;
+        if (settings.mode == Mode.DEBUG) {
             mainWindow = Utils.runSilentAndReturn(MainWindow::getInstance, false);
             userInterface = mainWindow.getUserInterface();
             mainWindow.getNotificationManager().removeNotificationTask(NotificationEventID.PROOF_CLOSED);
@@ -131,22 +137,22 @@ class KeYBridge {
         }
     }
 
-    static Proof proveContract(File file, Mode mode, OptimizationStrategy optimizationStrategy,
-                               @SuppressWarnings("SameParameterValue") String name, boolean allowDebugger) {
+    static Proof proveContract(File file, Settings settings,
+                               @SuppressWarnings("SameParameterValue") String name,
+                               boolean allowDebugger, boolean isPartialProof) {
         System.out.println("Loading " + file);
-        KeYBridge keYBridge = new KeYBridge(file, mode, optimizationStrategy);
+        KeYBridge keYBridge = new KeYBridge(file, settings);
         Contract contract = keYBridge.getContract(name);
-        return keYBridge.proveContract(contract, allowDebugger);
+        return keYBridge.proveContract(contract, allowDebugger, isPartialProof);
     }
 
-    static HashMap<String, List<Integer>> proveAllContracts(File file, Path proofRepositoryPath,
-                                                            Mode mode, OptimizationStrategy optimizationStrategy) {
+    static HashMap<String, List<Integer>> proveAllContracts(File file, Path proofRepositoryPath, Settings settings) {
         System.out.println("Loading " + file);
-        KeYBridge keYBridge = new KeYBridge(file, mode, optimizationStrategy);
+        KeYBridge keYBridge = new KeYBridge(file, settings);
         HashMap<String, List<Integer>> statisticsMap = new HashMap<>();
         for (Contract contract : keYBridge.getContracts()) {
             System.out.println("Proving " + contract.getTarget().name().toString());
-            Proof proof = keYBridge.proveContract(contract, true);
+            Proof proof = keYBridge.proveContract(contract, true, false);
             Path proofContextPath = proofRepositoryPath.resolve(contract.getTarget().name().toString()
                     .replace("::", "_"));
             Utils.createDirectory(proofContextPath);
@@ -243,16 +249,34 @@ class KeYBridge {
         }
     }
 
-    Proof beginOrContinueProof(Contract contract) {
-        Proof loadedProof = keYEnvironment.getLoadedProof();
-        return loadedProof != null ? loadedProof : beginProof(contract);
+    Proof beginOrContinueProof(Contract contract, boolean isPartialProof) {
+        Proof proof = keYEnvironment.getLoadedProof();
+        StrategySettings defaultStrategySettings = ProofSettings.DEFAULT_SETTINGS.getStrategySettings();
+        defaultStrategySettings.setMaxSteps(settings.maxSteps);
+        defaultStrategySettings.setTimeout(settings.timeout);
+        defaultStrategySettings.setActiveStrategyProperties(
+                settings.getStrategyProperties(defaultStrategySettings, isPartialProof));
+        if (proof == null) {
+            return beginProof(contract);
+        } else {
+            StrategySettings proofStrategySettings = proof.getSettings().getStrategySettings();
+            StrategyProperties strategyProperties =
+                    settings.getStrategyProperties(proofStrategySettings, isPartialProof);
+            Strategy strategy =
+                    keYEnvironment.getProfile().getDefaultStrategyFactory().create(proof, strategyProperties);
+            proofStrategySettings.setMaxSteps(settings.maxSteps);
+            proofStrategySettings.setTimeout(settings.timeout);
+            proofStrategySettings.setStrategy(strategy.name());
+            proofStrategySettings.setActiveStrategyProperties(strategyProperties);
+            proof.setActiveStrategy(strategy);
+            return proof;
+        }
     }
 
-    Proof proveContract(Contract contract, boolean allowDebugger) {
-        optimizationStrategy.updateStrategySettings(ProofSettings.DEFAULT_SETTINGS.getStrategySettings());
-        Proof proof = beginOrContinueProof(contract);
+    Proof proveContract(Contract contract, boolean allowDebugger, boolean isPartialProof) {
+        Proof proof = beginOrContinueProof(contract, isPartialProof);
         keYEnvironment.getProofControl().startAndWaitForAutoMode(proof);
-        if (mode == Mode.DEBUG && !proof.closed() && allowDebugger)
+        if (settings.mode == Mode.DEBUG && !proof.closed() && allowDebugger)
             debugger();
         return proof;
     }
