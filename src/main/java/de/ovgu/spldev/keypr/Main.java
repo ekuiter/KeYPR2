@@ -57,7 +57,7 @@ public class Main {
     // only verify the method "<feature>::<name>", useful for debugging
     static String focusOnMethod = null;
     // number of repetitions for evaluation purposes
-    static int N = 0;
+    static int N = 10;
 
     // case study: optimized product-based
     static {
@@ -65,7 +65,7 @@ public class Main {
         analysisKind = AnalysisKind.OPTIMIZED_PRODUCT_BASED;
     }
 
-//    // case study: feature-family-based
+    // case study: feature-family-based
     static {
         path = Paths.get("caseStudy/IntList");
         analysisKind = AnalysisKind.FEATURE_FAMILY_BASED;
