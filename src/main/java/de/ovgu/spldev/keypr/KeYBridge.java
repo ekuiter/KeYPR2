@@ -48,7 +48,7 @@ class KeYBridge {
         final int maxSteps;
         final long timeout;
         final HashMap<String, String> strategyProperties;
-        private HashMap<String, String> partialProofStrategyProperties;
+        private final HashMap<String, String> partialProofStrategyProperties;
 
         Settings(Mode mode, int maxSteps, int timeout, HashMap<String, String> strategyProperties,
                  HashMap<String, String> partialProofStrategyProperties) {

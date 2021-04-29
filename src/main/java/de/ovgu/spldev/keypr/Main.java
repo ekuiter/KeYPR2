@@ -39,7 +39,7 @@ public class Main {
     // set path to FeatureIDE project that should be verified
     static Path path;
     // set KeY parameters and target directory
-    static Supplier<VerificationSystem.KeY> verificationSystemSupplier = () -> {
+    static Supplier<VerificationSystem> verificationSystemSupplier = () -> {
         HashMap<String, String> strategyProperties = new HashMap<>();
         strategyProperties.put(StrategyProperties.NON_LIN_ARITH_OPTIONS_KEY, StrategyProperties.NON_LIN_ARITH_DEF_OPS);
         strategyProperties.put(StrategyProperties.STOPMODE_OPTIONS_KEY, StrategyProperties.STOPMODE_NONCLOSE);
@@ -48,16 +48,16 @@ public class Main {
         HashMap<String, String> partialProofStrategyProperties = new HashMap<>();
         partialProofStrategyProperties.put(
                 StrategyProperties.QUANTIFIERS_OPTIONS_KEY, StrategyProperties.QUANTIFIERS_NON_SPLITTING);
-        return new VerificationSystem.KeY(
-                new KeYBridge.Settings(KeYBridge.Mode.AUTO, strategyProperties, partialProofStrategyProperties),
-                Paths.get("caseStudy/proofRepository"));
+        return new VerificationSystem(
+                Paths.get("caseStudy/proofRepository"),
+                new KeYBridge.Settings(KeYBridge.Mode.AUTO, strategyProperties, partialProofStrategyProperties));
     };
     // set kind of performed analysis
     static AnalysisKind analysisKind;
     // only verify the method "<feature>::<name>", useful for debugging
     static String focusOnMethod = null;
     // number of repetitions for evaluation purposes
-    static int N = 10;
+    static int N = 0;
 
     // case study: optimized product-based
     static {
@@ -65,17 +65,17 @@ public class Main {
         analysisKind = AnalysisKind.OPTIMIZED_PRODUCT_BASED;
     }
 
-    // case study: feature-family-based
-    static {
-        path = Paths.get("caseStudy/IntList");
-        analysisKind = AnalysisKind.FEATURE_FAMILY_BASED;
-    }
-
-    // case study: family-based (code generated from IntList project with FeatureIDE/FeatureHouse)
-    static {
-        path = Paths.get("caseStudy/IntListMetaProduct");
-        analysisKind = AnalysisKind.FAMILY_BASED;
-    }
+//    // case study: feature-family-based
+//    static {
+//        path = Paths.get("caseStudy/IntList");
+//        analysisKind = AnalysisKind.FEATURE_FAMILY_BASED;
+//    }
+//
+//    // case study: family-based (code generated from IntList project with FeatureIDE/FeatureHouse)
+//    static {
+//        path = Paths.get("caseStudy/IntListMetaProduct");
+//        analysisKind = AnalysisKind.FAMILY_BASED;
+//    }
 
     public static void main(String[] args) {
         List<HashMap<String, List<Integer>>> statistics = new ArrayList<>();
@@ -92,7 +92,7 @@ public class Main {
 
     @SuppressWarnings("SameParameterValue")
     static HashMap<String, List<Integer>> verifyFeatureIDEProject(
-            Path path, VerificationSystem.KeY verificationSystem, AnalysisKind analysisKind, String focusOnMethod) {
+            Path path, VerificationSystem verificationSystem, AnalysisKind analysisKind, String focusOnMethod) {
         if (analysisKind.equals(AnalysisKind.FAMILY_BASED))
             return verifyFamilyBased(path, verificationSystem);
         return verifyFeatureIDEProject(path, verificationSystem,
@@ -106,12 +106,12 @@ public class Main {
 
     static HashMap<String, List<Integer>> verifyFeatureIDEProject(
             @SuppressWarnings("SameParameterValue") Path path, VerificationSystem verificationSystem,
-            Function<Model.PrunedBindingGraph, Model.VerificationPlan> fn,
+            Function<Model.BindingGraph, Model.VerificationPlan> fn,
             @SuppressWarnings("SameParameterValue") String focusOnMethod) {
         Model.SoftwareProductLine spl = getSoftwareProductLine(path);
-        Model.PrunedBindingGraph prunedBindingGraph = spl.program().prunedBindingGraph(spl);
-        Utils.render(prunedBindingGraph.toDot(), verificationSystem.proofRepositoryPath, "prunedBindingGraph");
-        Model.VerificationPlan verificationPlan = fn.apply(prunedBindingGraph);
+        Model.BindingGraph bindingGraph = spl.bindingGraph();
+        Utils.render(bindingGraph.toDot(), verificationSystem.proofRepositoryPath, "bindingGraph");
+        Model.VerificationPlan verificationPlan = fn.apply(bindingGraph);
         Utils.render(verificationPlan.toDot(), verificationSystem.proofRepositoryPath, "verificationPlan");
         Model.VerificationAttempt verificationAttempt = verificationPlan.verificationAttempt(verificationSystem);
         verificationAttempt.verify(focusOnMethod);
@@ -120,10 +120,10 @@ public class Main {
             verificationAttempt.failedProofs().forEach(System.out::println);
         }
         System.out.println(verificationAttempt.isCorrect() ? "VERIFICATION SUCCESSFUL" : "VERIFICATION FAILED");
-        return verificationAttempt.getStatisticsMap(prunedBindingGraph.getCompleteNodeOccurrences());
+        return verificationAttempt.getStatisticsMap(bindingGraph.completeNodeOccurrences);
     }
 
-    static HashMap<String, List<Integer>> verifyFamilyBased(Path path, VerificationSystem.KeY verificationSystem) {
+    static HashMap<String, List<Integer>> verifyFamilyBased(Path path, VerificationSystem verificationSystem) {
         return KeYBridge.proveAllContracts(path.toFile(),
                 verificationSystem.proofRepositoryPath, verificationSystem.settings);
     }
@@ -193,13 +193,13 @@ public class Main {
                                 // Assumption: If class A != class B and there are methods A.m1 and B.m2, m1 != m2.
                                 // Basically, this forbids late binding / polymorphism.
                                 if (contractCalls.contains("original"))
-                                    signatures.add(new VerificationSystem.KeY.Signature(n.getDeclarationAsString())
+                                    signatures.add(new VerificationSystem.Signature(n.getDeclarationAsString())
                                             .withName("original").toString());
                                 methods.add(new Model.Method(feature, n.getName().asString(),
-                                        new VerificationSystem.KeY.HoareTriple(signatures,
-                                                implementationCalls, contractCalls, contract[0],
+                                        new VerificationSystem.HoareTriple(contract[0],
                                                 new DefaultPrettyPrinter(new DefaultPrinterConfiguration()).print(n),
-                                                contract[1], contract[2])));
+                                                contract[1], contract[2],
+                                                signatures, implementationCalls, contractCalls)));
                             }
                         }.visit(compilationUnit, methods);
                     } catch (IOException ignored) {

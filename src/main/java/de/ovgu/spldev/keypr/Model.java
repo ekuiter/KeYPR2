@@ -138,7 +138,7 @@ public class Model {
             this.methods = new HashSet<>(methods);
         }
 
-        Comparator<Object> featureOrder() {
+        Comparator<String> featureOrder() {
             return Comparator.comparing(feature -> IntStream.range(0, features.size())
                     .filter(i -> feature.equals(features.get(i))).findFirst().orElse(-1));
         }
@@ -207,57 +207,9 @@ public class Model {
             }).collect(Collectors.toSet());
         }
 
-        Set<Binding> derivedBindings() {
-            return configurations.stream().flatMap(configuration -> derivedBindings(configuration).stream())
-                    .collect(Collectors.toSet());
-        }
-
-        Program program() {
-            return new Program(methods, derivedBindings());
-        }
-    }
-
-    public static class Program {
-        Set<Method> methods;
-        Set<Binding> bindings;
-
-        Program(Set<Method> methods, Set<Binding> bindings) {
-            this.methods = new HashSet<>(methods);
-            this.bindings = new HashSet<>(bindings);
-        }
-
-        static Set<Node> addBinding(Set<Node> nodes, Binding binding) {
-            Set<Node> newNodes = new HashSet<>(nodes);
-            newNodes.addAll(deltaAddBinding(nodes, binding));
-            newNodes.addAll(nodes.stream().flatMap(node -> node.bindings.stream()
-                    .flatMap(_binding -> addBinding(deltaAddBinding(nodes, binding), _binding).stream()))
-                    .collect(Collectors.toSet()));
-            return newNodes;
-        }
-
-        static Set<Node> deltaAddBinding(Set<Node> nodes, Binding binding) {
-            return nodes.stream().filter(node -> node.unboundCalls().contains(binding.source)).map(node -> {
-                Set<Binding> bindings = new HashSet<>(node.bindings);
-                bindings.add(binding);
-                return new Node(node.method, bindings);
-            }).collect(Collectors.toSet());
-        }
-
-        Set<Node> bindingGraphNodes() {
-            Set<Node> nodes = methods.stream().map(method -> new Node(method, new HashSet<>()))
-                    .collect(Collectors.toSet());
-            for (Binding binding : bindings)
-                nodes = addBinding(nodes, binding);
-            return nodes;
-        }
-
         @SuppressWarnings("unused")
         BindingGraph bindingGraph() {
-            return new BindingGraph(bindingGraphNodes());
-        }
-
-        PrunedBindingGraph prunedBindingGraph(SoftwareProductLine softwareProductLine) {
-            return new PrunedBindingGraph(softwareProductLine, bindingGraphNodes());
+            return BindingGraph.forSoftwareProductLine(this);
         }
     }
 
@@ -345,28 +297,57 @@ public class Model {
     }
 
     public static class BindingGraph {
-        Set<Node> nodes = new HashSet<>();
-        Set<Edge> edges = new HashSet<>();
+        Set<Node> nodes;
+        Set<Edge> edges;
+        HashMap<Node, Integer> completeNodeOccurrences;
 
-        BindingGraph(Set<Node> nodes) {
+        // Algorithm 1: Verification Graph for an SPL
+        static BindingGraph forSoftwareProductLine(SoftwareProductLine spl) {
+            Comparator<String> featureOrder = spl.featureOrder();
+            Set<Node> nodes = spl.methods.stream() // line 1
+                    .map(method -> new Node(method, new HashSet<>()))
+                    .collect(Collectors.toSet());
+            List<Binding> bindings = spl.configurations.stream() // line 2
+                    .flatMap(configuration -> spl.derivedBindings(configuration).stream())
+                    .sorted((b1, b2) -> featureOrder.compare(b2.destination.feature, b1.destination.feature)) // line 3
+                    .collect(Collectors.toList());
+            for (Binding binding : bindings) // line 4
+                nodes.addAll(nodes.stream() // line 5
+                        .filter(node -> node.unboundCalls().contains(binding.source))
+                        .map(node -> {
+                            Set<Binding> _bindings = new HashSet<>(node.bindings);
+                            _bindings.add(binding);
+                            return new Node(node.method, _bindings);
+                        }).collect(Collectors.toSet()));
+            nodes.removeAll(nodes.stream().filter(node -> spl.configurations.stream() // line 6
+                    .noneMatch(configuration ->
+                            spl.derivedMethods(configuration).contains(node.method) &&
+                                    spl.derivedBindings(configuration).containsAll(node.bindings)))
+                    .collect(Collectors.toSet()));
+            Set<Edge> edges = nodes.stream().flatMap(targetNode -> nodes.stream() // line 7
+                    .filter(sourceNode -> targetNode.method.equals(sourceNode.method) &&
+                            targetNode.bindings.containsAll(sourceNode.bindings) &&
+                            targetNode.bindings.size() == sourceNode.bindings.size() + 1)
+                    .map(sourceNode -> new Edge(sourceNode, targetNode))).collect(Collectors.toSet());
+            HashMap<Node, Integer> completeNodeOccurrences = new HashMap<>();
+            nodes.stream().filter(Node::isComplete).forEach(node -> completeNodeOccurrences.put(node,
+                    (int) spl.configurations.stream().filter(configuration ->
+                            spl.derivedMethods(configuration).contains(node.method) &&
+                                    spl.derivedBindings(configuration).containsAll(node.bindings))
+                            .count()));
+            return new BindingGraph(nodes, edges, completeNodeOccurrences); // line 8
+        }
+
+        BindingGraph(Set<Node> nodes, Set<Edge> edges, HashMap<Node, Integer> completeNodeOccurrences) {
             this.nodes = new HashSet<>(nodes);
-            this.edges = inferEdges(nodes);
+            this.edges = new HashSet<>(edges);
+            this.completeNodeOccurrences = new HashMap<>(completeNodeOccurrences);
         }
 
         BindingGraph(BindingGraph bindingGraph) {
             this.nodes = new HashSet<>(bindingGraph.nodes);
             this.edges = new HashSet<>(bindingGraph.edges);
-        }
-
-        BindingGraph() {
-        }
-
-        static Set<Edge> inferEdges(Set<Node> nodes) {
-            return nodes.stream().flatMap(targetNode -> nodes.stream()
-                    .filter(sourceNode -> targetNode.method.equals(sourceNode.method) &&
-                            targetNode.bindings.containsAll(sourceNode.bindings) &&
-                            targetNode.bindings.size() == sourceNode.bindings.size() + 1)
-                    .map(sourceNode -> new Edge(sourceNode, targetNode))).collect(Collectors.toSet());
+            this.completeNodeOccurrences = new HashMap<>(bindingGraph.completeNodeOccurrences);
         }
 
         String toDot(Set<Node> focusNodes, Set<Edge> focusEdges) {
@@ -424,34 +405,6 @@ public class Model {
 
         VerificationPlan minPartialProofReuseVerificationPlan() {
             return someVerificationPlan().optimizedProductBased();
-        }
-    }
-
-    public static class PrunedBindingGraph extends BindingGraph {
-        SoftwareProductLine softwareProductLine;
-
-        PrunedBindingGraph(SoftwareProductLine softwareProductLine, Set<Node> nodes) {
-            this.softwareProductLine = softwareProductLine;
-            this.nodes = prune(softwareProductLine, nodes);
-            this.edges = inferEdges(this.nodes);
-        }
-
-        Set<Node> prune(SoftwareProductLine softwareProductLine, Set<Node> nodes) {
-            return nodes.stream().filter(node -> softwareProductLine.configurations.stream()
-                    .anyMatch(configuration ->
-                            softwareProductLine.derivedMethods(configuration).contains(node.method) &&
-                                    softwareProductLine.derivedBindings(configuration).containsAll(node.bindings)))
-                    .collect(Collectors.toSet());
-        }
-
-        HashMap<Node, Integer> getCompleteNodeOccurrences() {
-            HashMap<Node, Integer> occurrences = new HashMap<>();
-            nodes.stream().filter(Node::isComplete).forEach(node -> occurrences.put(node,
-                    (int) softwareProductLine.configurations.stream().filter(configuration ->
-                            softwareProductLine.derivedMethods(configuration).contains(node.method) &&
-                                    softwareProductLine.derivedBindings(configuration).containsAll(node.bindings))
-                            .count()));
-            return occurrences;
         }
     }
 
