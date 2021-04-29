@@ -23,38 +23,62 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.function.Consumer;
 import java.util.function.Function;
-import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class Shell {
-    public static void verify(Path path, Supplier<Core.VerificationSystem> verificationSystemSupplier,
-                              Function<Core.VerificationGraph, Core.VerificationPlan> strategy,
-                              String focusOnMethod, int N) {
+    Core.VerificationGraph verificationGraph;
+    Function<String, Core.VerificationSystem> verificationSystemSupplier;
+    String focusOnMethod;
+    int n;
+    boolean warmedUp = false;
+    int run = 1;
+
+    public Shell(Core.VerificationGraph verificationGraph,
+                 Function<String, Core.VerificationSystem> verificationSystemSupplier,
+                 String focusOnMethod, int n) {
+        this.verificationGraph = verificationGraph;
+        this.verificationSystemSupplier = verificationSystemSupplier;
+        this.focusOnMethod = focusOnMethod;
+        this.n = n;
+    }
+
+    public void verify(Main.VerificationStrategy verificationStrategy) {
         List<HashMap<String, List<Integer>>> statistics = new ArrayList<>();
-        // warm-up run
-        Shell.verifyFeatureIDEProject(path, verificationSystemSupplier.get(), strategy, focusOnMethod);
+        if (!warmedUp) {
+            System.out.println("Warm-up run (" +  verificationStrategy.getClass().getSimpleName() + ") ...");
+            Shell.verifyFeatureIDEProject(verificationSystemSupplier.apply("0"),
+                    verificationGraph, verificationStrategy, focusOnMethod);
+            warmedUp = true;
+        }
         // actual evaluation
-        for (int i = 0; i < N; i++)
-            statistics.add(Shell.verifyFeatureIDEProject(
-                    path, verificationSystemSupplier.get(), strategy, focusOnMethod));
-        Core.VerificationAttempt.getStatisticsMap(statistics).forEach(
-                (k, v) -> System.out.printf("%s,%s%n", k, v.stream()
-                        .map(Object::toString).collect(Collectors.joining(","))));
+        for (int i = 0; i < n; i++) {
+            System.out.println("Run #" + run + "." + n + " (" +  verificationStrategy.getClass().getSimpleName() + ") ...");
+            statistics.add(Shell.verifyFeatureIDEProject(verificationSystemSupplier.apply(run + "." + n),
+                    verificationGraph, verificationStrategy, focusOnMethod));
+            HashMap<String, List<Integer>> statisticsMap = Core.VerificationAttempt.getStatisticsMap(statistics);
+            statisticsMap.forEach(
+                    (k, v) -> System.out.printf("%s,%s%n", k, v.stream()
+                            .map(Object::toString).collect(Collectors.joining(","))));
+            System.out.println(Core.VerificationAttempt.sumStatisticsMap(statisticsMap).stream()
+                    .map(Object::toString).collect(Collectors.joining(",")));
+        }
+        System.out.println();
+        run++;
     }
 
     static HashMap<String, List<Integer>> verifyFeatureIDEProject(
-            @SuppressWarnings("SameParameterValue") Path path, Core.VerificationSystem verificationSystem,
-            Function<Core.VerificationGraph, Core.VerificationPlan> strategy,
-            @SuppressWarnings("SameParameterValue") String focusOnMethod) {
-        if (strategy == null)
-            return verifyFamilyBased(path, verificationSystem);
-        Core.SoftwareProductLine spl = getSoftwareProductLine(path);
-        Core.VerificationGraph verificationGraph = spl.verificationGraph();
+            Core.VerificationSystem verificationSystem,
+            Core.VerificationGraph verificationGraph,
+            Main.VerificationStrategy verificationStrategy,
+            String focusOnMethod) {
+        if (verificationStrategy instanceof Main.VerificationStrategy.FamilyBased)
+            return verifyFamilyBased(
+                    ((Main.VerificationStrategy.FamilyBased) verificationStrategy).path, verificationSystem);
         Utils.render(verificationGraph.toDot(), verificationSystem.proofRepositoryPath, "verificationGraph");
-        Core.VerificationPlan verificationPlan = strategy.apply(verificationGraph);
+        Core.VerificationPlan verificationPlan = verificationStrategy.verificationPlan();
         Utils.render(verificationPlan.toDot(), verificationSystem.proofRepositoryPath, "verificationPlan");
         Core.VerificationAttempt verificationAttempt = verificationPlan.verificationAttempt(verificationSystem);
         verificationAttempt.verify(focusOnMethod);
@@ -62,7 +86,6 @@ public class Shell {
             System.out.println("Failed proofs:");
             verificationAttempt.failedProofs().forEach(System.out::println);
         }
-        System.out.println(verificationAttempt.isCorrect() ? "VERIFICATION SUCCESSFUL" : "VERIFICATION FAILED");
         return verificationAttempt.getStatisticsMap(verificationGraph.completeNodeOccurrences);
     }
 

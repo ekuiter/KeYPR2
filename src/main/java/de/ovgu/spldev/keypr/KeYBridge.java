@@ -40,6 +40,8 @@ import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 class KeYBridge {
+    private static final boolean DEBUG = false;
+
     @SuppressWarnings("unused")
     enum Mode {AUTO, DEBUG}
 
@@ -82,18 +84,19 @@ class KeYBridge {
         static final int STEP = 100;
 
         public void taskStarted(TaskStartedInfo info) {
-            System.out.print(info.getMessage() + " ");
+            if (DEBUG)
+                System.out.print(info.getMessage() + " ");
         }
 
         public void taskProgress(int position) {
-            if (position % STEP == 0)
+            if (DEBUG && position % STEP == 0)
                 System.out.print(".");
-            if (position > 0 && position % (STEP * 10) == 0)
+            if (DEBUG && position > 0 && position % (STEP * 10) == 0)
                 System.out.print(" " + position + " ");
         }
 
         public void taskFinished(TaskFinishedInfo info) {
-            if (info != null && info.getSource() instanceof ApplyStrategy) {
+            if (DEBUG && info != null && info.getSource() instanceof ApplyStrategy) {
                 System.out.println();
                 System.out.println(info);
             }
@@ -140,18 +143,21 @@ class KeYBridge {
     static Proof proveContract(File file, Settings settings,
                                @SuppressWarnings("SameParameterValue") String name,
                                boolean allowDebugger, boolean isPartialProof) {
-        System.out.println("Loading " + file);
+        if (DEBUG)
+            System.out.println("Loading " + file);
         KeYBridge keYBridge = new KeYBridge(file, settings);
         Contract contract = keYBridge.getContract(name);
         return keYBridge.proveContract(contract, allowDebugger, isPartialProof);
     }
 
     static HashMap<String, List<Integer>> proveAllContracts(File file, Path proofRepositoryPath, Settings settings) {
-        System.out.println("Loading " + file);
+        if (DEBUG)
+            System.out.println("Loading " + file);
         KeYBridge keYBridge = new KeYBridge(file, settings);
         HashMap<String, List<Integer>> statisticsMap = new HashMap<>();
         for (Contract contract : keYBridge.getContracts()) {
-            System.out.println("Proving " + contract.getTarget().name().toString());
+            if (DEBUG)
+                System.out.println("Proving " + contract.getTarget().name().toString());
             Proof proof = keYBridge.proveContract(contract, true, false);
             Path proofContextPath = proofRepositoryPath.resolve(contract.getTarget().name().toString()
                     .replace("::", "_"));

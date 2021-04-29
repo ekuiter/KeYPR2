@@ -898,6 +898,16 @@ public class Core {
             return newStatisticsMap;
         }
 
+        static List<Integer> sumStatisticsMap(HashMap<String, List<Integer>> statisticsMap) {
+            //noinspection OptionalGetWithoutIsPresent
+            List<Integer> res = new ArrayList<>(
+                    Collections.nCopies(statisticsMap.values().stream().findAny().get().size(), 0));
+            for (Map.Entry<String, List<Integer>> entry : statisticsMap.entrySet())
+                for (int i = 0; i < entry.getValue().size(); i++)
+                    res.set(i, i < res.size() ? res.get(i) + entry.getValue().get(i) : entry.getValue().get(i));
+            return res;
+        }
+
         boolean isCorrect() {
             return failedProofs().isEmpty();
         }
