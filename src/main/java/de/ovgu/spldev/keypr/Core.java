@@ -574,6 +574,19 @@ public class Core {
         VerificationAttempt verificationAttempt(VerificationSystem verificationSystem) {
             return new VerificationAttempt(this, verificationSystem);
         }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            VerificationPlan that = (VerificationPlan) o;
+            return nodes.equals(that.nodes) && edges.equals(that.edges);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(nodes, edges);
+        }
     }
 
     public static class VerificationPlanGenerator implements Iterable<VerificationPlan> {
@@ -628,6 +641,13 @@ public class Core {
                     return new VerificationPlan(verificationGraph.nodes, edges);
                 }
             };
+        }
+
+        static Set<Core.VerificationPlan> allOptimizedVerificationPlans(VerificationGraph verificationGraph) {
+            Set<Core.VerificationPlan> optimizedVerificationPlans = new HashSet<>();
+            for (Core.VerificationPlan verificationPlan : new Core.VerificationPlanGenerator(verificationGraph))
+                optimizedVerificationPlans.add(verificationPlan.removeDeadEnds().combineLinearSubPaths());
+            return optimizedVerificationPlans;
         }
     }
 

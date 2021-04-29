@@ -34,7 +34,7 @@ public class Main {
         strategy = Strategy::featureBased;
         // strategy = Strategy::optimizedProductBased;
         // strategy = Strategy::featureProductBased;
-        // strategy = Strategy::featureFamilyBased;
+        strategy = Strategy::bestFeatureFamilyBased;
         // path = Paths.get("caseStudy/IntListMetaProduct");
         // strategy = null;
 
@@ -42,7 +42,7 @@ public class Main {
     }
 
     static class Strategy {
-        // as all verification plans are correctness-equivalent, we can choose any (but some may perform better than others)
+        // all verification plans are correctness-equivalent, so we can choose any (some may perform better than others)
         static Core.VerificationPlan chooseAny(Core.VerificationGraph verificationGraph) {
             return new Core.VerificationPlanGenerator(verificationGraph).iterator().next();
         }
@@ -83,15 +83,18 @@ public class Main {
         }
 
         // feature-family-based strategy: several partial proof phases to improve proof reuse
-        static Core.VerificationPlan featureFamilyBased(Core.VerificationGraph verificationGraph) {
-            // minimize all verification plans, then choose the one with most nodes (and therefore most proof reuse)
+        static Core.VerificationPlan bestFeatureFamilyBased(Core.VerificationGraph verificationGraph) {
             HashMap<Core.VerificationPlan, Integer> scores = new HashMap<>();
-            for (Core.VerificationPlan verificationPlan : new Core.VerificationPlanGenerator(verificationGraph)) {
-                Core.VerificationPlan optimizedVerificationPlan = verificationPlan.removeDeadEnds().combineLinearSubPaths();
-                scores.put(optimizedVerificationPlan, optimizedVerificationPlan.nodes.size());
-            }
+            Set<Core.VerificationPlan> optimizedVerificationPlans =
+                    Core.VerificationPlanGenerator.allOptimizedVerificationPlans(verificationGraph);
+            for (Core.VerificationPlan verificationPlan : optimizedVerificationPlans)
+                scores.put(verificationPlan, verificationPlan.edges.stream()
+                        .map(edge -> edge.newBindings().size()).mapToInt(Integer::intValue).sum());
             //noinspection ConstantConditions
-            return scores.entrySet().stream().max(Map.Entry.comparingByValue()).orElse(null).getKey();
+            return scores.entrySet().stream().min(Map.Entry.comparingByValue()).orElse(null).getKey();
         }
+
+        // unoptimized product-based can be calculated from optimized product-based and method occurrences
+        // family-based can be evaluated using a meta-product
     }
 }
