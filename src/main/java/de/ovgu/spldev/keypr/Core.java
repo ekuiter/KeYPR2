@@ -1,16 +1,160 @@
 package de.ovgu.spldev.keypr;
 
+import de.uka.ilkd.key.proof.Proof;
+
+import java.io.File;
+import java.nio.file.Path;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
-public class Model {
+public class Core {
+    public static class Signature {
+        static final Pattern PATTERN = Pattern.compile("^(.*)\\s+(.*)\\((.*)\\)$");
+
+        String type;
+        String name;
+        List<Utils.Pair<String, String>> parameters;
+
+        Signature(String type, String name, List<Utils.Pair<String, String>> parameters) {
+            this.type = type;
+            this.name = name;
+            this.parameters = parameters;
+        }
+
+        Signature(String spec) {
+            Matcher matcher = PATTERN.matcher(spec.trim());
+            if (!matcher.find())
+                throw new IllegalArgumentException(
+                        "invalid function specification " + spec + ", expected <type> <name>(<parameters>)");
+            type = matcher.group(1).trim();
+            name = matcher.group(2).trim();
+            parameters = new ArrayList<>();
+            AtomicInteger paramCounter = new AtomicInteger(1);
+            Arrays.stream(matcher.group(3).trim().split(","))
+                    .map(String::trim)
+                    .map(str -> str.split("\\s+"))
+                    .forEach(_parts -> {
+                        if (String.join("", _parts).isEmpty())
+                            return;
+                        if (_parts.length == 1) {
+                            parameters.add(new Utils.Pair<>(_parts[0], "_" + paramCounter));
+                            paramCounter.getAndIncrement();
+                        } else if (_parts.length == 2)
+                            parameters.add(new Utils.Pair<>(_parts[0], _parts[1]));
+                        else
+                            throw new IllegalArgumentException("invalid parameters in signature specification");
+                    });
+        }
+
+        Signature copy() {
+            return new Signature(type, name, new ArrayList<>(parameters));
+        }
+
+        Signature withType(String type) {
+            Signature thisCopy = copy();
+            thisCopy.type = type;
+            return thisCopy;
+        }
+
+        Signature withName(String name) {
+            Signature thisCopy = copy();
+            thisCopy.name = name;
+            return thisCopy;
+        }
+
+        Signature prependName(String name) {
+            return withName(name + this.name);
+        }
+
+        Signature appendName(String name) {
+            return withName(this.name + name);
+        }
+
+        Signature appendParameter(String type, String name) {
+            Signature thisCopy = copy();
+            thisCopy.parameters = new ArrayList<>(this.parameters);
+            thisCopy.parameters.add(new Utils.Pair<>(type, name));
+            return thisCopy;
+        }
+
+        String parametersToJavaString() {
+            return parameters != null ? "(" + parameters.stream()
+                    .map(entry -> entry.first + (entry.second != null ? " " + entry.second : ""))
+                    .collect(Collectors.joining(", ")) + ")" : "";
+        }
+
+        String parametersToArgumentString() {
+            return parameters != null ? "(" + parameters.stream()
+                    .map(entry -> entry.second)
+                    .collect(Collectors.joining(", ")) + ")" : "";
+        }
+
+        String toCallString() {
+            return name + parametersToArgumentString();
+        }
+
+        public String toString() {
+            return type + " " + name + parametersToJavaString();
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            Signature signature = (Signature) o;
+            return Objects.equals(type, signature.type) && Objects.equals(name, signature.name) &&
+                    Objects.equals(parameters, signature.parameters);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(type, name, parameters);
+        }
+    }
+
+    public static class HoareTriple {
+        String requires;
+        String implementation;
+        String ensures;
+        String assignable;
+        Signature signature;
+        Set<Signature> signatures;
+        Set<String> implementationCalls;
+        Set<String> contractCalls;
+
+        HoareTriple(String requires, String code, String ensures, String assignable,
+                    Set<String> signatures, Set<String> implementationCalls, Set<String> contractCalls) {
+            String[] parts = code.split("\\{", 2);
+            this.requires = requires;
+            this.implementation = "{\n    " + parts[1].trim();
+            this.ensures = ensures;
+            this.assignable = assignable;
+            this.signature = new Signature(parts[0].trim());
+            this.signatures = signatures.stream().map(Signature::new).collect(Collectors.toSet());
+            this.implementationCalls = implementationCalls;
+            this.contractCalls = contractCalls;
+        }
+
+        Set<String> implementationCalls() {
+            return implementationCalls;
+        }
+
+        Set<String> contractCalls() {
+            return contractCalls;
+        }
+    }
+
     public static class Method {
         String feature;
         String name;
-        VerificationSystem.HoareTriple hoareTriple;
+        HoareTriple hoareTriple;
 
-        Method(String feature, String name, VerificationSystem.HoareTriple hoareTriple) {
+        Method(String feature, String name, HoareTriple hoareTriple) {
             this.feature = feature;
             this.name = name;
             this.hoareTriple = hoareTriple;
@@ -208,8 +352,8 @@ public class Model {
         }
 
         @SuppressWarnings("unused")
-        BindingGraph bindingGraph() {
-            return BindingGraph.forSoftwareProductLine(this);
+        VerificationGraph verificationGraph() {
+            return VerificationGraph.forSoftwareProductLine(this);
         }
     }
 
@@ -296,13 +440,13 @@ public class Model {
         }
     }
 
-    public static class BindingGraph {
+    public static class VerificationGraph {
         Set<Node> nodes;
         Set<Edge> edges;
         HashMap<Node, Integer> completeNodeOccurrences;
 
         // Algorithm 1: Verification Graph for an SPL
-        static BindingGraph forSoftwareProductLine(SoftwareProductLine spl) {
+        static VerificationGraph forSoftwareProductLine(SoftwareProductLine spl) {
             Comparator<String> featureOrder = spl.featureOrder();
             Set<Node> nodes = spl.methods.stream() // line 1
                     .map(method -> new Node(method, new HashSet<>()))
@@ -335,25 +479,18 @@ public class Model {
                             spl.derivedMethods(configuration).contains(node.method) &&
                                     spl.derivedBindings(configuration).containsAll(node.bindings))
                             .count()));
-            return new BindingGraph(nodes, edges, completeNodeOccurrences); // line 8
+            return new VerificationGraph(nodes, edges, completeNodeOccurrences); // line 8
         }
 
-        BindingGraph(Set<Node> nodes, Set<Edge> edges, HashMap<Node, Integer> completeNodeOccurrences) {
+        VerificationGraph(Set<Node> nodes, Set<Edge> edges, HashMap<Node, Integer> completeNodeOccurrences) {
             this.nodes = new HashSet<>(nodes);
             this.edges = new HashSet<>(edges);
             this.completeNodeOccurrences = new HashMap<>(completeNodeOccurrences);
         }
 
-        BindingGraph(BindingGraph bindingGraph) {
-            this.nodes = new HashSet<>(bindingGraph.nodes);
-            this.edges = new HashSet<>(bindingGraph.edges);
-            this.completeNodeOccurrences = new HashMap<>(bindingGraph.completeNodeOccurrences);
-        }
-
-        String toDot(Set<Node> focusNodes, Set<Edge> focusEdges) {
+        String toDot() {
             return String.format("digraph {\n" +
                             "rankdir = LR;\n" +
-                            "%s\n" +
                             "%s\n" +
                             "%s\n" +
                             "}",
@@ -369,62 +506,30 @@ public class Model {
                                             .map(node -> String.format(
                                                     "\"%s\" [label = \"%s\", tooltip = \"%s\", style = \"%s\"];",
                                                     node.id, node.toShortString(), node.toLongString(),
-                                                    focusNodes != null && !focusNodes.contains(node) ? "invis" :
-                                                            node.isComplete() ? "diagonals" : "solid"))
+                                                    node.isComplete() ? "diagonals" : "solid"))
                                             .collect(Collectors.joining("\n"))))
                             .collect(Collectors.joining("\n")),
-                    edges.stream().map(edge -> String.format("\"%s\" -> \"%s\" [tooltip = \"%s\"%s];",
-                            edge.sourceNode.id, edge.targetNode.id, edge.newBindings(),
-                            (focusEdges != null && !focusEdges.contains(edge) ? ", style = \"invis\"" : "")))
-                            .collect(Collectors.joining("\n")),
-                    (focusEdges != null ? focusEdges : new HashSet<Edge>()).stream()
-                            .filter(edge -> !edges.contains(edge))
-                            .map(edge -> String.format("\"%s\" -> \"%s\" [tooltip = \"%s\"];",
-                                    edge.sourceNode.id, edge.targetNode.id, edge.newBindings()))
+                    edges.stream().map(edge -> String.format("\"%s\" -> \"%s\" [tooltip = \"%s\"];",
+                            edge.sourceNode.id, edge.targetNode.id, edge.newBindings()))
                             .collect(Collectors.joining("\n")));
-        }
-
-        String toDot() {
-            return toDot(null, null);
-        }
-
-        VerificationPlan someVerificationPlan() {
-            return new VerificationPlanGenerator(this).iterator().next();
-        }
-
-        VerificationPlan maxPartialReuseVerificationPlan() {
-            // minimize all verification plans, then choose the one with most nodes (and therefore most partial reuse)
-            HashMap<VerificationPlan, Integer> scores = new HashMap<>();
-            for (VerificationPlan verificationPlan : new VerificationPlanGenerator(this)) {
-                VerificationPlan optimizedVerificationPlan = verificationPlan.removeDeadEnds().combineLinearSubPaths();
-                scores.put(optimizedVerificationPlan, optimizedVerificationPlan.nodes.size());
-            }
-            //noinspection ConstantConditions
-            return scores.entrySet().stream().max(Map.Entry.comparingByValue()).orElse(null).getKey();
-        }
-
-        VerificationPlan minPartialProofReuseVerificationPlan() {
-            return someVerificationPlan().optimizedProductBased();
         }
     }
 
     public static class VerificationPlan {
-        BindingGraph bindingGraph;
         Set<Node> nodes;
         Set<Edge> edges;
 
-        VerificationPlan(BindingGraph bindingGraph, Set<Node> nodes, Set<Edge> edges) {
-            this.bindingGraph = new BindingGraph(bindingGraph);
+        VerificationPlan(Set<Node> nodes, Set<Edge> edges) {
             this.nodes = new HashSet<>(nodes);
             this.edges = new HashSet<>(edges);
         }
 
         String toDot() {
-            return bindingGraph.toDot(nodes, edges);
+            return new VerificationGraph(nodes, edges, new HashMap<>()).toDot();
         }
 
         VerificationPlan removeDeadEnds() {
-            VerificationPlan verificationPlan = new VerificationPlan(bindingGraph, nodes, edges);
+            VerificationPlan verificationPlan = new VerificationPlan(nodes, edges);
             boolean done = false;
             while (!done) {
                 Set<Node> removeNodes = verificationPlan.nodes.stream()
@@ -441,7 +546,7 @@ public class Model {
         }
 
         VerificationPlan combineLinearSubPaths() {
-            VerificationPlan verificationPlan = new VerificationPlan(bindingGraph, nodes, edges);
+            VerificationPlan verificationPlan = new VerificationPlan(nodes, edges);
             boolean done = false;
             while (!done) {
                 Node removeNode = verificationPlan.nodes.stream()
@@ -463,17 +568,6 @@ public class Model {
                 } else
                     done = true;
             }
-            verificationPlan.bindingGraph.nodes = verificationPlan.nodes;
-            verificationPlan.bindingGraph.edges = verificationPlan.edges;
-            return verificationPlan;
-        }
-
-        VerificationPlan optimizedProductBased() {
-            VerificationPlan verificationPlan = new VerificationPlan(bindingGraph, nodes, edges);
-            verificationPlan.nodes = verificationPlan.nodes.stream().filter(Node::isComplete).collect(Collectors.toSet());
-            verificationPlan.edges = new HashSet<>();
-            verificationPlan.bindingGraph.nodes = verificationPlan.nodes;
-            verificationPlan.bindingGraph.edges = verificationPlan.edges;
             return verificationPlan;
         }
 
@@ -483,13 +577,13 @@ public class Model {
     }
 
     public static class VerificationPlanGenerator implements Iterable<VerificationPlan> {
-        BindingGraph bindingGraph;
+        VerificationGraph verificationGraph;
         List<List<Edge>> edgeFamily;
 
-        VerificationPlanGenerator(BindingGraph bindingGraph) {
-            this.bindingGraph = bindingGraph;
-            edgeFamily = bindingGraph.nodes.stream()
-                    .map(node -> bindingGraph.edges.stream().filter(edge -> edge.targetNode.equals(node))
+        VerificationPlanGenerator(VerificationGraph verificationGraph) {
+            this.verificationGraph = verificationGraph;
+            edgeFamily = verificationGraph.nodes.stream()
+                    .map(node -> verificationGraph.edges.stream().filter(edge -> edge.targetNode.equals(node))
                             .collect(Collectors.toList()))
                     .filter(edges -> !edges.isEmpty()).collect(Collectors.toList());
         }
@@ -531,9 +625,183 @@ public class Model {
                         edges.add(edgeFamily.get(i).get(indices[i]));
                     }
                     increment();
-                    return new VerificationPlan(bindingGraph, bindingGraph.nodes, edges);
+                    return new VerificationPlan(verificationGraph.nodes, edges);
                 }
             };
+        }
+    }
+
+    public static class JavaClassGenerator {
+        Core.State state;
+
+        JavaClassGenerator(Core.State state) {
+            this.state = state;
+        }
+
+        String generateContract(String... args) {
+            if (args.length % 2 != 0)
+                throw new IllegalArgumentException("expected map of JML keywords to values");
+            StringBuilder sb = new StringBuilder();
+            sb.append("/*@ ");
+            for (int i = 0; i < args.length; i += 2)
+                sb.append(i > 0 ? "\n  @ " : "").append(args[i]).append(" ").append(args[i + 1]);
+            return sb.append(" */").toString();
+        }
+
+        Core.Signature originalSignature(Core.Method method) {
+            return method.hoareTriple.signature.withName(method.feature + "_" + method.name + "_original");
+        }
+
+        Core.Signature scopedSignature(Core.Method method, Core.Signature signature) {
+            return signature.prependName(method.feature + "_" + method.name + "_");
+        }
+
+        String replaceOriginal(String condition, boolean isRequires, Core.Signature signature) {
+            return condition.replace("\\original",
+                    (isRequires || signature.type.equals("void") ? signature :
+                            signature.appendParameter(signature.type,
+                                    signature.equals(originalSignature(state.method)) ? "\\result" : "res"))
+                            .appendName(isRequires ? "_requires" : "_ensures")
+                            .toCallString());
+        }
+
+        String getLocSet(String assignable) {
+            return assignable.equals("\\everything")
+                    ? "\\set_minus(\\everything, \\nothing)"
+                    : assignable.equals("\\nothing")
+                    ? "\\set_minus(\\nothing, \\everything)"
+                    : assignable;
+        }
+
+        String generateAbstractMethod(Core.Method callingMethod, Core.Signature signature) {
+            Core.Signature requiresSignature =
+                    scopedSignature(callingMethod, signature).withType("boolean").appendName("_requires");
+            Function<String, Core.Signature> ensuresSignature =
+                    res -> scopedSignature(callingMethod,
+                            signature.type.equals("void")
+                                    ? signature
+                                    : signature.appendParameter(signature.type, res))
+                            .withType("boolean").appendName("_ensures");
+            Core.Signature assignableSignature =
+                    scopedSignature(callingMethod, signature).withType("\\locset").appendName("_assignable");
+            Optional<Core.Binding> binding = state.bindings.stream()
+                    .filter(_binding -> _binding.source.in.equals(callingMethod) &&
+                            _binding.source.to.equals(signature.name))
+                    .findFirst();
+            String requiresExpansion = binding
+                    .map(_binding -> " { return " + replaceOriginal(
+                            _binding.destination.hoareTriple.requires,
+                            true, originalSignature(_binding.destination)) + "; }")
+                    .orElse(";");
+            String ensuresExpansion = binding
+                    .map(_binding -> " { return " + replaceOriginal(
+                            _binding.destination.hoareTriple.ensures
+                                    .replace("\\result", "res"),
+                            false, originalSignature(_binding.destination)) + "; }")
+                    .orElse(";");
+            String assignableExpansion = binding
+                    .map(_binding -> " { return " +
+                            getLocSet(_binding.destination.hoareTriple.assignable) + "; }")
+                    .orElse(";");
+            return String.format("%s\n%s%s%s",
+                    binding.filter(_binding -> !_binding.destination.contractCalls().isEmpty())
+                            .map(_binding -> generateAbstractMethod(_binding.destination,
+                                    _binding.destination.hoareTriple
+                                            .signature.withName("original")) + "\n").orElse(""),
+                    generateContract(
+                            "model", requiresSignature + requiresExpansion,
+                            "model", ensuresSignature.apply("res") + ensuresExpansion,
+                            "model", assignableSignature + assignableExpansion),
+                    callingMethod.equals(state.method) ? "\n" +
+                            generateContract("requires", requiresSignature.toCallString() + ";",
+                                    "ensures", ensuresSignature.apply("\\result").toCallString() + ";",
+                                    "assignable", assignableSignature.toCallString() + ";") : "",
+                    callingMethod.equals(state.method) ? String.format("\n%s;", signature.toString()) : "");
+        }
+
+        String generate() {
+            Core.HoareTriple hoareTriple = state.method.hoareTriple;
+            return String.format("class Gen {%s\n\n%s\n%s %s\n}",
+                    hoareTriple.signatures.stream()
+                            .map(signature -> generateAbstractMethod(state.method, signature))
+                            .collect(Collectors.joining("\n")),
+                    generateContract(
+                            "requires", replaceOriginal(
+                                    hoareTriple.requires, true, originalSignature(state.method)) + ";",
+                            "ensures", replaceOriginal(
+                                    hoareTriple.ensures, false, originalSignature(state.method)) + ";",
+                            "assignable", hoareTriple.assignable + ";").trim(),
+                    hoareTriple.signature.withName("main"),
+                    hoareTriple.implementation);
+        }
+    }
+
+    public static class State {
+        private final VerificationSystem verificationSystem;
+        Method method;
+        Set<Binding> bindings;
+        String partialProofBefore;
+        String partialProofAfter;
+        Boolean isClosed;
+        List<Integer> statistics;
+
+        State(VerificationSystem verificationSystem, Method method, Set<Binding> bindings, String partialProofBefore) {
+            this.verificationSystem = verificationSystem;
+            this.method = method;
+            this.bindings = bindings;
+            this.partialProofBefore = partialProofBefore;
+            verify();
+        }
+
+        @Override
+        public String toString() {
+            String str = method.feature + "_" + method.name + "_" + bindings.stream()
+                    .map(binding -> String.format("%s_%s_%s_%s_%s",
+                            binding.source.in.feature, binding.source.in.name, binding.source.to,
+                            binding.destination.feature, binding.destination.name))
+                    .collect(Collectors.joining("_"));
+            return str.substring(0, Math.min(str.length(), 80)) + "_" + hashCode();
+        }
+
+        List<Integer> getStatistics() {
+            return statistics;
+        }
+
+        File createProofContext() {
+            Path proofContextPath = verificationSystem.proofRepositoryPath.resolve(toString());
+            Utils.createDirectory(proofContextPath);
+            Path javaClassPath = proofContextPath.resolve("Gen.java");
+            Utils.writeFile(javaClassPath, new JavaClassGenerator(this).generate());
+            if (partialProofBefore != null)
+                Utils.writeFile(proofContextPath.resolve("problem.key"), partialProofBefore);
+            return proofContextPath.toFile();
+        }
+
+        void writeProof(Proof proof) {
+            partialProofAfter = KeYBridge.serializeProof(proof);
+            isClosed = proof.closed();
+            Path proofContextPath = verificationSystem.proofRepositoryPath.resolve(toString());
+            Utils.writeFile(proofContextPath.resolve("proof.key"), partialProofAfter);
+            Utils.writeFile(proofContextPath.resolve("statistics.txt"),
+                    (proof.closed() ? "closed" : proof.openGoals().size() + " open") +
+                            "\n" + proof.getStatistics().toString());
+            statistics = new ArrayList<>();
+            statistics.add(new Node(method, bindings).isComplete() ? proof.openGoals().size() : 0);
+            statistics.add(proof.getStatistics().nodes);
+            statistics.add(proof.getStatistics().branches);
+            statistics.add(proof.getStatistics().symbExApps);
+            statistics.add((int) proof.getStatistics().autoModeTimeInMillis);
+        }
+
+        void verify() {
+            File proofContext = createProofContext();
+            boolean isComplete = new Node(method, bindings).isComplete();
+            Proof proof = KeYBridge.proveContract(
+                    partialProofBefore != null
+                            ? proofContext.toPath().resolve("problem.key").toFile()
+                            : proofContext, verificationSystem.settings, "main",
+                    isComplete, !isComplete);
+            writeProof(proof);
         }
     }
 
@@ -541,7 +809,7 @@ public class Model {
         VerificationPlan verificationPlan;
         List<Node> sortedNodes;
         VerificationSystem verificationSystem;
-        Map<Node, VerificationSystem.State> map = new HashMap<>();
+        Map<Node, State> map = new HashMap<>();
 
         VerificationAttempt(VerificationPlan verificationPlan, VerificationSystem verificationSystem) {
             this.verificationPlan = verificationPlan;
@@ -572,7 +840,7 @@ public class Model {
                 }
         }
 
-        Set<VerificationSystem.State> failedProofs() {
+        Set<State> failedProofs() {
             return sortedNodes.stream()
                     .filter(Node::isComplete)
                     .map(map::get)
@@ -612,6 +880,33 @@ public class Model {
 
         boolean isCorrect() {
             return failedProofs().isEmpty();
+        }
+    }
+
+    static public class VerificationSystem {
+        Path proofRepositoryPath;
+        KeYBridge.Settings settings;
+
+        VerificationSystem(Path proofRepositoryPath, KeYBridge.Settings settings) {
+            this.proofRepositoryPath = proofRepositoryPath;
+            this.settings = settings;
+            Utils.deleteDirectory(proofRepositoryPath);
+            Utils.createDirectory(proofRepositoryPath);
+            KeYBridge.initialize();
+        }
+
+        Core.State beginProof(Core.Method method, Set<Core.Binding> bindings) {
+            return new Core.State(this, method, new HashSet<>(bindings), null);
+        }
+
+        Core.State continueProof(Core.State state, Set<Core.Binding> bindings) {
+            HashSet<Core.Binding> newBindings = new HashSet<>(state.bindings);
+            newBindings.addAll(bindings);
+            return new Core.State(this, state.method, newBindings, state.partialProofAfter);
+        }
+
+        boolean completeProof(Core.State state) {
+            return state.isClosed;
         }
     }
 }
