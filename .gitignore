@@ -79,4 +79,5 @@ fabric.properties
 .idea/inspectionProfiles
 .idea/compiler.xml
 .idea/jarRepositories.xml
-caseStudy/proofRepository
+caseStudy/eval*
+KeYPl.jar

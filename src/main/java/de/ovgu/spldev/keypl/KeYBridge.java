@@ -1,4 +1,4 @@
-package de.ovgu.spldev.keypr;
+package de.ovgu.spldev.keypl;
 
 import de.uka.ilkd.key.control.DefaultUserInterfaceControl;
 import de.uka.ilkd.key.control.KeYEnvironment;
@@ -150,7 +150,7 @@ class KeYBridge {
         return keYBridge.proveContract(contract, allowDebugger, isPartialProof);
     }
 
-    static HashMap<String, List<Integer>> proveAllContracts(File file, Path proofRepositoryPath, Settings settings) {
+    static HashMap<String, List<Integer>> proveAllContracts(File file, Path path, Settings settings) {
         if (DEBUG)
             System.out.println("Loading " + file);
         KeYBridge keYBridge = new KeYBridge(file, settings);
@@ -159,7 +159,7 @@ class KeYBridge {
             if (DEBUG)
                 System.out.println("Proving " + contract.getTarget().name().toString());
             Proof proof = keYBridge.proveContract(contract, true, false);
-            Path proofContextPath = proofRepositoryPath.resolve(contract.getTarget().name().toString()
+            Path proofContextPath = path.resolve(contract.getTarget().name().toString()
                     .replace("::", "_"));
             Utils.createDirectory(proofContextPath);
             Utils.writeFile(proofContextPath.resolve("proof.key"), serializeProof(proof));

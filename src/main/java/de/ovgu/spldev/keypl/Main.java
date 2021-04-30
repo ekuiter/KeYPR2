@@ -1,4 +1,4 @@
-package de.ovgu.spldev.keypr;
+package de.ovgu.spldev.keypl;
 
 import de.uka.ilkd.key.strategy.StrategyProperties;
 
@@ -9,10 +9,18 @@ import java.util.stream.Collectors;
 
 public class Main {
     public static void main(String[] args) {
-        Utils.deleteDirectory(Paths.get("caseStudy/proofRepository"));
+        if (args.length < 2 || args.length > 3) {
+            System.out.println("As first argument, pass feature, product, " +
+                    "feature-product, feature-family, feature-family-all, or family.\n" +
+                    "As second argument, pass number of repetitions.\n" +
+                    "As third argument, pass method to focus on (optional).");
+            return;
+        }
+        Utils.deleteDirectory(Paths.get("caseStudy/evaluation-" + args[0]));
         Core.VerificationGraph verificationGraph = // path to FeatureIDE project that should be verified
                 Shell.getSoftwareProductLine(Paths.get("caseStudy/IntList")).verificationGraph();
         Shell shell = new Shell(
+                Paths.get("caseStudy/evaluation-" + args[0] + "/results"),
                 verificationGraph,
                 run -> {
                     HashMap<String, String> strategyProperties = new HashMap<>();
@@ -26,19 +34,31 @@ public class Main {
                     partialProofStrategyProperties.put(
                             StrategyProperties.QUANTIFIERS_OPTIONS_KEY, StrategyProperties.QUANTIFIERS_NON_SPLITTING);
                     return new Core.VerificationSystem(
-                            Paths.get("caseStudy/proofRepository").resolve(run),
+                            Paths.get("caseStudy/evaluation-" + args[0]).resolve(run),
                             new KeYBridge.Settings(
                                     KeYBridge.Mode.AUTO, strategyProperties, partialProofStrategyProperties));
                 },
-                null, // only verify the method "<feature>::<name>", useful for debugging
-                1  // number of repetitions for evaluation purposes
+                args.length == 3 ? args[2] : null, // only verify the method "<feature>::<name>", useful for debugging
+                Integer.parseInt(args[1]) // number of repetitions for evaluation purposes
         );
-        shell.verify(new VerificationStrategy.FeatureBased(verificationGraph));
-        shell.verify(new VerificationStrategy.OptimizedProductBased(verificationGraph));
-        shell.verify(new VerificationStrategy.FeatureProductBased(verificationGraph));
-        shell.verify(new VerificationStrategy.BestFeatureFamilyBased(verificationGraph));
-        shell.verify(new VerificationStrategy.FeatureFamilyBased(verificationGraph));
-        shell.verify(new VerificationStrategy.FamilyBased(Paths.get("caseStudy/IntListMetaProduct")));
+        String arg = args[0];
+        if (arg.equals("feature"))
+            shell.verify(new VerificationStrategy.FeatureBased(verificationGraph));
+        if (arg.equals("product"))
+            shell.verify(new VerificationStrategy.OptimizedProductBased(verificationGraph));
+        if (arg.equals("feature-product"))
+            shell.verify(new VerificationStrategy.FeatureProductBased(verificationGraph));
+        if (arg.equals("feature-family"))
+            shell.verify(new VerificationStrategy.BestFeatureFamilyBased(verificationGraph));
+        VerificationStrategy.FeatureFamilyBased verificationStrategy =
+                new VerificationStrategy.FeatureFamilyBased(verificationGraph);
+        if (arg.equals("feature-family-all"))
+            while (verificationStrategy.hasNext()) {
+                shell.verify(verificationStrategy);
+                verificationStrategy.increment();
+            }
+        if (arg.equals("family"))
+            shell.verify(new VerificationStrategy.FamilyBased(Paths.get("caseStudy/IntListMetaProduct")));
     }
 
     abstract static class VerificationStrategy {
@@ -49,6 +69,11 @@ public class Main {
         }
 
         abstract Core.VerificationPlan verificationPlan();
+
+        @Override
+        public String toString() {
+            return getClass().getSimpleName();
+        }
 
         // all verification plans are correctness-equivalent, so we can choose any (some may perform better than others)
         static class ChooseAny extends VerificationStrategy {
@@ -137,6 +162,15 @@ public class Main {
             void increment() {
                 i++;
             }
+
+            boolean hasNext() {
+                return i < optimizedVerificationPlans.size();
+            }
+
+            @Override
+            public String toString() {
+                return super.toString() + "-" + BestFeatureFamilyBased.score(verificationPlan());
+            }
         }
 
         // heuristic for verification plan with maximal proof reuse
@@ -145,14 +179,18 @@ public class Main {
                 super(verificationGraph);
             }
 
+            static int score(Core.VerificationPlan verificationPlan) {
+                return verificationPlan.edges.stream()
+                        .map(edge -> edge.newBindings().size()).mapToInt(Integer::intValue).sum();
+            }
+
             @Override
             Core.VerificationPlan verificationPlan() {
                 HashMap<Core.VerificationPlan, Integer> scores = new HashMap<>();
                 Set<Core.VerificationPlan> optimizedVerificationPlans =
                         Core.VerificationPlanGenerator.allOptimizedVerificationPlans(verificationGraph);
                 for (Core.VerificationPlan verificationPlan : optimizedVerificationPlans)
-                    scores.put(verificationPlan, verificationPlan.edges.stream()
-                            .map(edge -> edge.newBindings().size()).mapToInt(Integer::intValue).sum());
+                    scores.put(verificationPlan, score(verificationPlan));
                 //noinspection ConstantConditions
                 return scores.entrySet().stream().min(Map.Entry.comparingByValue()).orElse(null).getKey();
             }

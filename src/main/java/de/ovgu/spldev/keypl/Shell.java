@@ -1,4 +1,4 @@
-package de.ovgu.spldev.keypr;
+package de.ovgu.spldev.keypl;
 
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
@@ -29,6 +29,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class Shell {
+    private final Path resultPath;
     Core.VerificationGraph verificationGraph;
     Function<String, Core.VerificationSystem> verificationSystemSupplier;
     String focusOnMethod;
@@ -36,36 +37,44 @@ public class Shell {
     boolean warmedUp = false;
     int run = 1;
 
-    public Shell(Core.VerificationGraph verificationGraph,
+    public Shell(Path resultPath,
+                 Core.VerificationGraph verificationGraph,
                  Function<String, Core.VerificationSystem> verificationSystemSupplier,
                  String focusOnMethod, int n) {
+        this.resultPath = resultPath;
         this.verificationGraph = verificationGraph;
         this.verificationSystemSupplier = verificationSystemSupplier;
         this.focusOnMethod = focusOnMethod;
         this.n = n;
+        Utils.createDirectory(resultPath);
     }
 
     public void verify(Main.VerificationStrategy verificationStrategy) {
         List<HashMap<String, List<Integer>>> statistics = new ArrayList<>();
+        StringBuilder sb = new StringBuilder();
         if (!warmedUp) {
-            System.out.println("Warm-up run (" +  verificationStrategy.getClass().getSimpleName() + ") ...");
+            System.out.println("Warm-up run (" +  verificationStrategy + ")");
             Shell.verifyFeatureIDEProject(verificationSystemSupplier.apply("0"),
                     verificationGraph, verificationStrategy, focusOnMethod);
             warmedUp = true;
         }
-        // actual evaluation
-        for (int i = 0; i < n; i++) {
-            System.out.println("Run #" + run + "." + n + " (" +  verificationStrategy.getClass().getSimpleName() + ") ...");
-            statistics.add(Shell.verifyFeatureIDEProject(verificationSystemSupplier.apply(run + "." + n),
+        for (int i = 1; i <= n; i++) {
+            System.out.println("Run #" + run + "." + i + " (" +  verificationStrategy + ")");
+            statistics.add(Shell.verifyFeatureIDEProject(verificationSystemSupplier.apply(run + "." + i),
                     verificationGraph, verificationStrategy, focusOnMethod));
-            HashMap<String, List<Integer>> statisticsMap = Core.VerificationAttempt.getStatisticsMap(statistics);
-            statisticsMap.forEach(
-                    (k, v) -> System.out.printf("%s,%s%n", k, v.stream()
-                            .map(Object::toString).collect(Collectors.joining(","))));
-            System.out.println(Core.VerificationAttempt.sumStatisticsMap(statisticsMap).stream()
-                    .map(Object::toString).collect(Collectors.joining(",")));
         }
-        System.out.println();
+        HashMap<String, List<Integer>> statisticsMap = Core.VerificationAttempt.getStatisticsMap(statistics);
+        statisticsMap.forEach(
+                (k, v) -> sb.append(String.format("%s,%s%n", k, v.stream()
+                        .map(Object::toString).collect(Collectors.joining(",")))));
+        List<Integer> totalResults = Core.VerificationAttempt.sumStatisticsMap(statisticsMap);
+        String total = totalResults.stream()
+                .map(Object::toString).collect(Collectors.joining(","));
+        sb.append("total,").append(total);
+        System.out.println(total);
+        Utils.writeFile(
+                resultPath.resolve(String.format("%d-%s-%d.csv", run, verificationStrategy, totalResults.get(1))),
+                sb.toString());
         run++;
     }
 
@@ -77,9 +86,9 @@ public class Shell {
         if (verificationStrategy instanceof Main.VerificationStrategy.FamilyBased)
             return verifyFamilyBased(
                     ((Main.VerificationStrategy.FamilyBased) verificationStrategy).path, verificationSystem);
-        Utils.render(verificationGraph.toDot(), verificationSystem.proofRepositoryPath, "verificationGraph");
+        Utils.render(verificationGraph.toDot(), verificationSystem.path, "verificationGraph");
         Core.VerificationPlan verificationPlan = verificationStrategy.verificationPlan();
-        Utils.render(verificationPlan.toDot(), verificationSystem.proofRepositoryPath, "verificationPlan");
+        Utils.render(verificationPlan.toDot(), verificationSystem.path, "verificationPlan");
         Core.VerificationAttempt verificationAttempt = verificationPlan.verificationAttempt(verificationSystem);
         verificationAttempt.verify(focusOnMethod);
         if (!verificationAttempt.isCorrect()) {
@@ -91,7 +100,7 @@ public class Shell {
 
     static HashMap<String, List<Integer>> verifyFamilyBased(Path path, Core.VerificationSystem verificationSystem) {
         return KeYBridge.proveAllContracts(path.toFile(),
-                verificationSystem.proofRepositoryPath, verificationSystem.settings);
+                verificationSystem.path, verificationSystem.settings);
     }
 
     static Core.SoftwareProductLine getSoftwareProductLine(Path path) {

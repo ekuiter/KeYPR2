@@ -1,5 +1,5 @@
-## KeYPR
+## KeYPl
 
-**KeY for Proof Repositories**
+**KeY for Verification Graphs**
 
 TODO

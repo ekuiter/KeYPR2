@@ -1,4 +1,4 @@
-package de.ovgu.spldev.keypr;
+package de.ovgu.spldev.keypl;
 
 import guru.nidi.graphviz.engine.Format;
 import guru.nidi.graphviz.engine.Graphviz;

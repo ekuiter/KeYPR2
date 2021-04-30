@@ -1,4 +1,4 @@
-package de.ovgu.spldev.keypr;
+package de.ovgu.spldev.keypl;
 
 import de.uka.ilkd.key.proof.Proof;
 
@@ -788,7 +788,7 @@ public class Core {
         }
 
         File createProofContext() {
-            Path proofContextPath = verificationSystem.proofRepositoryPath.resolve(toString());
+            Path proofContextPath = verificationSystem.path.resolve(toString());
             Utils.createDirectory(proofContextPath);
             Path javaClassPath = proofContextPath.resolve("Gen.java");
             Utils.writeFile(javaClassPath, new JavaClassGenerator(this).generate());
@@ -800,7 +800,7 @@ public class Core {
         void writeProof(Proof proof) {
             partialProofAfter = KeYBridge.serializeProof(proof);
             isClosed = proof.closed();
-            Path proofContextPath = verificationSystem.proofRepositoryPath.resolve(toString());
+            Path proofContextPath = verificationSystem.path.resolve(toString());
             Utils.writeFile(proofContextPath.resolve("proof.key"), partialProofAfter);
             Utils.writeFile(proofContextPath.resolve("statistics.txt"),
                     (proof.closed() ? "closed" : proof.openGoals().size() + " open") +
@@ -914,14 +914,14 @@ public class Core {
     }
 
     static public class VerificationSystem {
-        Path proofRepositoryPath;
+        Path path;
         KeYBridge.Settings settings;
 
-        VerificationSystem(Path proofRepositoryPath, KeYBridge.Settings settings) {
-            this.proofRepositoryPath = proofRepositoryPath;
+        VerificationSystem(Path path, KeYBridge.Settings settings) {
+            this.path = path;
             this.settings = settings;
-            Utils.deleteDirectory(proofRepositoryPath);
-            Utils.createDirectory(proofRepositoryPath);
+            Utils.deleteDirectory(path);
+            Utils.createDirectory(path);
             KeYBridge.initialize();
         }
 

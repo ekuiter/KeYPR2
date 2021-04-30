@@ -25,4 +25,4 @@ dependencies {
 sourceCompatibility = 1.8
 group 'de.ovgu.spldev'
 version '1.0-SNAPSHOT'
-mainClassName = 'de.ovgu.spldev.keypr.Main'
+mainClassName = 'de.ovgu.spldev.keypl.Main'

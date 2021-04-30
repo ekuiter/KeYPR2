@@ -1,0 +1,6 @@
+java -jar KeYPl.jar feature 5
+java -jar KeYPl.jar product 5
+java -jar KeYPl.jar feature-product 5
+java -jar KeYPl.jar feature-family 5
+java -jar KeYPl.jar feature-family-all 5
+java -jar KeYPl.jar family 5
