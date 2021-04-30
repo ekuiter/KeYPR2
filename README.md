@@ -1,5 +1,5 @@
 ## KeYPl
 
-**KeY for Verification Graphs**
+**KeY for Verification Plans**
 
 TODO
