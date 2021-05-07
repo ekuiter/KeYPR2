@@ -17,11 +17,11 @@ public class Main {
             return;
         }
         Utils.deleteDirectory(Paths.get("caseStudy/evaluation-" + args[0]));
-        Core.VerificationGraph verificationGraph = // path to FeatureIDE project that should be verified
-                Shell.getSoftwareProductLine(Paths.get("caseStudy/IntList")).verificationGraph();
+        Core.ProofGraph proofGraph = // path to FeatureIDE project that should be verified
+                Shell.getSoftwareProductLine(Paths.get("caseStudy/IntList")).proofGraph();
         Shell shell = new Shell(
                 Paths.get("caseStudy/evaluation-" + args[0] + "/results"),
-                verificationGraph,
+                proofGraph,
                 run -> {
                     HashMap<String, String> strategyProperties = new HashMap<>();
                     strategyProperties.put(
@@ -43,15 +43,15 @@ public class Main {
         );
         String arg = args[0];
         if (arg.equals("feature"))
-            shell.verify(new VerificationStrategy.FeatureBased(verificationGraph));
+            shell.verify(new VerificationStrategy.FeatureBased(proofGraph));
         if (arg.equals("product"))
-            shell.verify(new VerificationStrategy.OptimizedProductBased(verificationGraph));
+            shell.verify(new VerificationStrategy.OptimizedProductBased(proofGraph));
         if (arg.equals("feature-product"))
-            shell.verify(new VerificationStrategy.FeatureProductBased(verificationGraph));
+            shell.verify(new VerificationStrategy.FeatureProductBased(proofGraph));
         if (arg.equals("feature-family"))
-            shell.verify(new VerificationStrategy.BestFeatureFamilyBased(verificationGraph));
+            shell.verify(new VerificationStrategy.BestFeatureFamilyBased(proofGraph));
         VerificationStrategy.FeatureFamilyBased verificationStrategy =
-                new VerificationStrategy.FeatureFamilyBased(verificationGraph);
+                new VerificationStrategy.FeatureFamilyBased(proofGraph);
         if (arg.equals("feature-family-all"))
             while (verificationStrategy.hasNext()) {
                 shell.verify(verificationStrategy);
@@ -62,101 +62,101 @@ public class Main {
     }
 
     abstract static class VerificationStrategy {
-        Core.VerificationGraph verificationGraph;
+        Core.ProofGraph proofGraph;
 
-        VerificationStrategy(Core.VerificationGraph verificationGraph) {
-            this.verificationGraph = verificationGraph;
+        VerificationStrategy(Core.ProofGraph proofGraph) {
+            this.proofGraph = proofGraph;
         }
 
-        abstract Core.VerificationPlan verificationPlan();
+        abstract Core.ProofPlan proofPlan();
 
         @Override
         public String toString() {
             return getClass().getSimpleName();
         }
 
-        // all verification plans are correctness-equivalent, so we can choose any (some may perform better than others)
+        // all proof plans are correctness-equivalent, so we can choose any (some may perform better than others)
         static class ChooseAny extends VerificationStrategy {
-            ChooseAny(Core.VerificationGraph verificationGraph) {
-                super(verificationGraph);
+            ChooseAny(Core.ProofGraph proofGraph) {
+                super(proofGraph);
             }
 
             @Override
-            Core.VerificationPlan verificationPlan() {
-                return new Core.VerificationPlanGenerator(verificationGraph).iterator().next();
+            Core.ProofPlan proofPlan() {
+                return new Core.ProofPlanGenerator(proofGraph).iterator().next();
             }
         }
 
         // feature-based strategy: no proof reuse, no feature interactions, only meaningful for methods without calls
         static class FeatureBased extends VerificationStrategy {
-            FeatureBased(Core.VerificationGraph verificationGraph) {
-                super(verificationGraph);
+            FeatureBased(Core.ProofGraph proofGraph) {
+                super(proofGraph);
             }
 
             @Override
-            Core.VerificationPlan verificationPlan() {
-                Core.VerificationPlan verificationPlan = new ChooseAny(verificationGraph).verificationPlan();
-                verificationPlan.nodes = verificationPlan.nodes.stream()
+            Core.ProofPlan proofPlan() {
+                Core.ProofPlan proofPlan = new ChooseAny(proofGraph).proofPlan();
+                proofPlan.nodes = proofPlan.nodes.stream()
                         .filter(node -> node.bindings.isEmpty())
                         .collect(Collectors.toSet());
-                verificationPlan.edges = new HashSet<>();
-                return verificationPlan;
+                proofPlan.edges = new HashSet<>();
+                return proofPlan;
             }
         }
 
         // optimized product-based strategy: no proof reuse, only optimized by eliminating duplicate proofs
         static class OptimizedProductBased extends VerificationStrategy {
-            OptimizedProductBased(Core.VerificationGraph verificationGraph) {
-                super(verificationGraph);
+            OptimizedProductBased(Core.ProofGraph proofGraph) {
+                super(proofGraph);
             }
 
             @Override
-            Core.VerificationPlan verificationPlan() {
-                Core.VerificationPlan verificationPlan = new ChooseAny(verificationGraph).verificationPlan();
-                verificationPlan.nodes = verificationPlan.nodes.stream()
+            Core.ProofPlan proofPlan() {
+                Core.ProofPlan proofPlan = new ChooseAny(proofGraph).proofPlan();
+                proofPlan.nodes = proofPlan.nodes.stream()
                         .filter(Core.Node::isComplete)
                         .collect(Collectors.toSet());
-                verificationPlan.edges = new HashSet<>();
-                return verificationPlan;
+                proofPlan.edges = new HashSet<>();
+                return proofPlan;
             }
         }
 
         // feature-product-based strategy: slight proof reuse by one phase of partial proofs
         static class FeatureProductBased extends VerificationStrategy {
-            FeatureProductBased(Core.VerificationGraph verificationGraph) {
-                super(verificationGraph);
+            FeatureProductBased(Core.ProofGraph proofGraph) {
+                super(proofGraph);
             }
 
             @Override
-            Core.VerificationPlan verificationPlan() {
-                Core.VerificationPlan verificationPlan = new ChooseAny(verificationGraph).verificationPlan();
-                verificationPlan.nodes = verificationPlan.nodes.stream()
+            Core.ProofPlan proofPlan() {
+                Core.ProofPlan proofPlan = new ChooseAny(proofGraph).proofPlan();
+                proofPlan.nodes = proofPlan.nodes.stream()
                         .filter(node -> node.bindings.isEmpty() || node.isComplete())
                         .collect(Collectors.toSet());
-                verificationPlan.edges = verificationPlan.nodes.stream()
-                        .flatMap(targetNode -> verificationPlan.nodes.stream()
+                proofPlan.edges = proofPlan.nodes.stream()
+                        .flatMap(targetNode -> proofPlan.nodes.stream()
                                 .filter(sourceNode -> targetNode.method.equals(sourceNode.method) &&
                                         targetNode.bindings.containsAll(sourceNode.bindings) &&
                                         targetNode.bindings.size() > sourceNode.bindings.size())
                                 .map(sourceNode -> new Core.Edge(sourceNode, targetNode))).collect(Collectors.toSet());
-                return verificationPlan;
+                return proofPlan;
             }
         }
 
         // feature-family-based strategy: several partial proof phases to improve proof reuse
         static class FeatureFamilyBased extends VerificationStrategy {
-            List<Core.VerificationPlan> optimizedVerificationPlans;
+            List<Core.ProofPlan> optimizedProofPlans;
             int i = 0;
 
-            FeatureFamilyBased(Core.VerificationGraph verificationGraph) {
-                super(verificationGraph);
-                optimizedVerificationPlans = new ArrayList<>(
-                        Core.VerificationPlanGenerator.allOptimizedVerificationPlans(verificationGraph));
+            FeatureFamilyBased(Core.ProofGraph proofGraph) {
+                super(proofGraph);
+                optimizedProofPlans = new ArrayList<>(
+                        Core.ProofPlanGenerator.allOptimizedProofPlans(proofGraph));
             }
 
             @Override
-            Core.VerificationPlan verificationPlan() {
-                return i < optimizedVerificationPlans.size() ? optimizedVerificationPlans.get(i) : null;
+            Core.ProofPlan proofPlan() {
+                return i < optimizedProofPlans.size() ? optimizedProofPlans.get(i) : null;
             }
 
             void increment() {
@@ -164,33 +164,33 @@ public class Main {
             }
 
             boolean hasNext() {
-                return i < optimizedVerificationPlans.size();
+                return i < optimizedProofPlans.size();
             }
 
             @Override
             public String toString() {
-                return super.toString() + "-" + BestFeatureFamilyBased.score(verificationPlan());
+                return super.toString() + "-" + BestFeatureFamilyBased.score(proofPlan());
             }
         }
 
-        // heuristic for verification plan with maximal proof reuse
+        // heuristic for proof plan with maximal proof reuse
         static class BestFeatureFamilyBased extends VerificationStrategy {
-            BestFeatureFamilyBased(Core.VerificationGraph verificationGraph) {
-                super(verificationGraph);
+            BestFeatureFamilyBased(Core.ProofGraph proofGraph) {
+                super(proofGraph);
             }
 
-            static int score(Core.VerificationPlan verificationPlan) {
-                return verificationPlan.edges.stream()
+            static int score(Core.ProofPlan proofPlan) {
+                return proofPlan.edges.stream()
                         .map(edge -> edge.newBindings().size()).mapToInt(Integer::intValue).sum();
             }
 
             @Override
-            Core.VerificationPlan verificationPlan() {
-                HashMap<Core.VerificationPlan, Integer> scores = new HashMap<>();
-                Set<Core.VerificationPlan> optimizedVerificationPlans =
-                        Core.VerificationPlanGenerator.allOptimizedVerificationPlans(verificationGraph);
-                for (Core.VerificationPlan verificationPlan : optimizedVerificationPlans)
-                    scores.put(verificationPlan, score(verificationPlan));
+            Core.ProofPlan proofPlan() {
+                HashMap<Core.ProofPlan, Integer> scores = new HashMap<>();
+                Set<Core.ProofPlan> optimizedProofPlans =
+                        Core.ProofPlanGenerator.allOptimizedProofPlans(proofGraph);
+                for (Core.ProofPlan proofPlan : optimizedProofPlans)
+                    scores.put(proofPlan, score(proofPlan));
                 //noinspection ConstantConditions
                 return scores.entrySet().stream().min(Map.Entry.comparingByValue()).orElse(null).getKey();
             }
@@ -206,7 +206,7 @@ public class Main {
             }
 
             @Override
-            Core.VerificationPlan verificationPlan() {
+            Core.ProofPlan proofPlan() {
                 return null;
             }
         }

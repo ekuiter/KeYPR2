@@ -352,8 +352,8 @@ public class Core {
         }
 
         @SuppressWarnings("unused")
-        VerificationGraph verificationGraph() {
-            return VerificationGraph.forSoftwareProductLine(this);
+        ProofGraph proofGraph() {
+            return ProofGraph.forSoftwareProductLine(this);
         }
     }
 
@@ -440,13 +440,13 @@ public class Core {
         }
     }
 
-    public static class VerificationGraph {
+    public static class ProofGraph {
         Set<Node> nodes;
         Set<Edge> edges;
         HashMap<Node, Integer> completeNodeOccurrences;
 
-        // Algorithm 1: Verification Graph for an SPL
-        static VerificationGraph forSoftwareProductLine(SoftwareProductLine spl) {
+        // Algorithm 1: Proof Graph for an SPL
+        static ProofGraph forSoftwareProductLine(SoftwareProductLine spl) {
             Comparator<String> featureOrder = spl.featureOrder();
             Set<Node> nodes = spl.methods.stream() // line 1
                     .map(method -> new Node(method, new HashSet<>()))
@@ -479,10 +479,10 @@ public class Core {
                             spl.derivedMethods(configuration).contains(node.method) &&
                                     spl.derivedBindings(configuration).containsAll(node.bindings))
                             .count()));
-            return new VerificationGraph(nodes, edges, completeNodeOccurrences); // line 8
+            return new ProofGraph(nodes, edges, completeNodeOccurrences); // line 8
         }
 
-        VerificationGraph(Set<Node> nodes, Set<Edge> edges, HashMap<Node, Integer> completeNodeOccurrences) {
+        ProofGraph(Set<Node> nodes, Set<Edge> edges, HashMap<Node, Integer> completeNodeOccurrences) {
             this.nodes = new HashSet<>(nodes);
             this.edges = new HashSet<>(edges);
             this.completeNodeOccurrences = new HashMap<>(completeNodeOccurrences);
@@ -515,60 +515,60 @@ public class Core {
         }
     }
 
-    public static class VerificationPlan {
+    public static class ProofPlan {
         Set<Node> nodes;
         Set<Edge> edges;
 
-        VerificationPlan(Set<Node> nodes, Set<Edge> edges) {
+        ProofPlan(Set<Node> nodes, Set<Edge> edges) {
             this.nodes = new HashSet<>(nodes);
             this.edges = new HashSet<>(edges);
         }
 
         String toDot() {
-            return new VerificationGraph(nodes, edges, new HashMap<>()).toDot();
+            return new ProofGraph(nodes, edges, new HashMap<>()).toDot();
         }
 
-        VerificationPlan removeDeadEnds() {
-            VerificationPlan verificationPlan = new VerificationPlan(nodes, edges);
+        ProofPlan removeDeadEnds() {
+            ProofPlan proofPlan = new ProofPlan(nodes, edges);
             boolean done = false;
             while (!done) {
-                Set<Node> removeNodes = verificationPlan.nodes.stream()
-                        .filter(node -> verificationPlan.edges.stream().noneMatch(edge -> edge.sourceNode.equals(node)))
+                Set<Node> removeNodes = proofPlan.nodes.stream()
+                        .filter(node -> proofPlan.edges.stream().noneMatch(edge -> edge.sourceNode.equals(node)))
                         .filter(node -> !node.isComplete())
                         .collect(Collectors.toSet());
-                verificationPlan.edges.removeAll(verificationPlan.edges.stream()
+                proofPlan.edges.removeAll(proofPlan.edges.stream()
                         .filter(edge -> removeNodes.stream().anyMatch(node -> edge.targetNode.equals(node)))
                         .collect(Collectors.toSet()));
-                verificationPlan.nodes.removeAll(removeNodes);
+                proofPlan.nodes.removeAll(removeNodes);
                 done = removeNodes.isEmpty();
             }
-            return verificationPlan;
+            return proofPlan;
         }
 
-        VerificationPlan combineLinearSubPaths() {
-            VerificationPlan verificationPlan = new VerificationPlan(nodes, edges);
+        ProofPlan combineLinearSubPaths() {
+            ProofPlan proofPlan = new ProofPlan(nodes, edges);
             boolean done = false;
             while (!done) {
-                Node removeNode = verificationPlan.nodes.stream()
-                        .filter(node -> verificationPlan.edges.stream()
+                Node removeNode = proofPlan.nodes.stream()
+                        .filter(node -> proofPlan.edges.stream()
                                 .filter(edge -> edge.sourceNode.equals(node)).count() == 1)
                         .findAny().orElse(null);
                 if (removeNode != null) {
-                    Edge parentEdge = verificationPlan.edges.stream().filter(edge -> edge.targetNode.equals(removeNode))
+                    Edge parentEdge = proofPlan.edges.stream().filter(edge -> edge.targetNode.equals(removeNode))
                             .findFirst().orElse(null);
                     @SuppressWarnings("OptionalGetWithoutIsPresent") Edge childEdge =
-                            verificationPlan.edges.stream().filter(edge -> edge.sourceNode.equals(removeNode))
+                            proofPlan.edges.stream().filter(edge -> edge.sourceNode.equals(removeNode))
                                     .findFirst().get();
                     if (parentEdge != null) {
-                        verificationPlan.edges.add(new Edge(parentEdge.sourceNode, childEdge.targetNode));
-                        verificationPlan.edges.remove(parentEdge);
+                        proofPlan.edges.add(new Edge(parentEdge.sourceNode, childEdge.targetNode));
+                        proofPlan.edges.remove(parentEdge);
                     }
-                    verificationPlan.edges.remove(childEdge);
-                    verificationPlan.nodes.remove(removeNode);
+                    proofPlan.edges.remove(childEdge);
+                    proofPlan.nodes.remove(removeNode);
                 } else
                     done = true;
             }
-            return verificationPlan;
+            return proofPlan;
         }
 
         VerificationAttempt verificationAttempt(VerificationSystem verificationSystem) {
@@ -579,7 +579,7 @@ public class Core {
         public boolean equals(Object o) {
             if (this == o) return true;
             if (o == null || getClass() != o.getClass()) return false;
-            VerificationPlan that = (VerificationPlan) o;
+            ProofPlan that = (ProofPlan) o;
             return nodes.equals(that.nodes) && edges.equals(that.edges);
         }
 
@@ -589,22 +589,22 @@ public class Core {
         }
     }
 
-    public static class VerificationPlanGenerator implements Iterable<VerificationPlan> {
-        VerificationGraph verificationGraph;
+    public static class ProofPlanGenerator implements Iterable<ProofPlan> {
+        ProofGraph proofGraph;
         List<List<Edge>> edgeFamily;
 
-        VerificationPlanGenerator(VerificationGraph verificationGraph) {
-            this.verificationGraph = verificationGraph;
-            edgeFamily = verificationGraph.nodes.stream()
-                    .map(node -> verificationGraph.edges.stream().filter(edge -> edge.targetNode.equals(node))
+        ProofPlanGenerator(ProofGraph proofGraph) {
+            this.proofGraph = proofGraph;
+            edgeFamily = proofGraph.nodes.stream()
+                    .map(node -> proofGraph.edges.stream().filter(edge -> edge.targetNode.equals(node))
                             .collect(Collectors.toList()))
                     .filter(edges -> !edges.isEmpty()).collect(Collectors.toList());
         }
 
         @SuppressWarnings("NullableProblems")
         @Override
-        public Iterator<VerificationPlan> iterator() {
-            return new Iterator<VerificationPlan>() {
+        public Iterator<ProofPlan> iterator() {
+            return new Iterator<ProofPlan>() {
                 final int[] indices = new int[edgeFamily.size()];
                 boolean done = false;
 
@@ -632,22 +632,22 @@ public class Core {
                 }
 
                 @Override
-                public VerificationPlan next() {
+                public ProofPlan next() {
                     Set<Edge> edges = new HashSet<>();
                     for (int i = 0; i < indices.length; i++) {
                         edges.add(edgeFamily.get(i).get(indices[i]));
                     }
                     increment();
-                    return new VerificationPlan(verificationGraph.nodes, edges);
+                    return new ProofPlan(proofGraph.nodes, edges);
                 }
             };
         }
 
-        static Set<Core.VerificationPlan> allOptimizedVerificationPlans(VerificationGraph verificationGraph) {
-            Set<Core.VerificationPlan> optimizedVerificationPlans = new HashSet<>();
-            for (Core.VerificationPlan verificationPlan : new Core.VerificationPlanGenerator(verificationGraph))
-                optimizedVerificationPlans.add(verificationPlan.removeDeadEnds().combineLinearSubPaths());
-            return optimizedVerificationPlans;
+        static Set<ProofPlan> allOptimizedProofPlans(ProofGraph proofGraph) {
+            Set<ProofPlan> optimizedProofPlans = new HashSet<>();
+            for (ProofPlan proofPlan : new ProofPlanGenerator(proofGraph))
+                optimizedProofPlans.add(proofPlan.removeDeadEnds().combineLinearSubPaths());
+            return optimizedProofPlans;
         }
     }
 
@@ -826,16 +826,16 @@ public class Core {
     }
 
     public static class VerificationAttempt {
-        VerificationPlan verificationPlan;
+        ProofPlan proofPlan;
         List<Node> sortedNodes;
         VerificationSystem verificationSystem;
         Map<Node, State> map = new HashMap<>();
 
-        VerificationAttempt(VerificationPlan verificationPlan, VerificationSystem verificationSystem) {
-            this.verificationPlan = verificationPlan;
+        VerificationAttempt(ProofPlan proofPlan, VerificationSystem verificationSystem) {
+            this.proofPlan = proofPlan;
             // this is ONE topological sorting, others are possible.
             // this is not interesting if we restrict ourselves to one CPU core and no network partitions.
-            this.sortedNodes = verificationPlan.nodes.stream()
+            this.sortedNodes = proofPlan.nodes.stream()
                     .sorted(Comparator.comparing(node -> node.bindings.size()))
                     .collect(Collectors.toList());
             this.verificationSystem = verificationSystem;
@@ -849,10 +849,10 @@ public class Core {
         void verify(String focusOnMethod) {
             for (Node node : sortedNodes)
                 if (focusOnMethod == null || focusOnMethod.equals(node.method.toString())) {
-                    if (verificationPlan.edges.stream().noneMatch(edge -> edge.targetNode.equals(node)))
+                    if (proofPlan.edges.stream().noneMatch(edge -> edge.targetNode.equals(node)))
                         map.put(node, verificationSystem.beginProof(node.method, node.bindings));
                     else {
-                        @SuppressWarnings("OptionalGetWithoutIsPresent") Edge edge = verificationPlan.edges.stream()
+                        @SuppressWarnings("OptionalGetWithoutIsPresent") Edge edge = proofPlan.edges.stream()
                                 .filter(_edge -> _edge.targetNode.equals(node))
                                 .findFirst().get();
                         map.put(node, verificationSystem.continueProof(map.get(edge.sourceNode), edge.newBindings()));

@@ -30,7 +30,7 @@ import java.util.stream.Stream;
 
 public class Shell {
     private final Path resultPath;
-    Core.VerificationGraph verificationGraph;
+    Core.ProofGraph proofGraph;
     Function<String, Core.VerificationSystem> verificationSystemSupplier;
     String focusOnMethod;
     int n;
@@ -38,11 +38,11 @@ public class Shell {
     int run = 1;
 
     public Shell(Path resultPath,
-                 Core.VerificationGraph verificationGraph,
+                 Core.ProofGraph proofGraph,
                  Function<String, Core.VerificationSystem> verificationSystemSupplier,
                  String focusOnMethod, int n) {
         this.resultPath = resultPath;
-        this.verificationGraph = verificationGraph;
+        this.proofGraph = proofGraph;
         this.verificationSystemSupplier = verificationSystemSupplier;
         this.focusOnMethod = focusOnMethod;
         this.n = n;
@@ -55,13 +55,13 @@ public class Shell {
         if (!warmedUp) {
             System.out.println("Warm-up run (" +  verificationStrategy + ")");
             Shell.verifyFeatureIDEProject(verificationSystemSupplier.apply("0"),
-                    verificationGraph, verificationStrategy, focusOnMethod);
+                    proofGraph, verificationStrategy, focusOnMethod);
             warmedUp = true;
         }
         for (int i = 1; i <= n; i++) {
             System.out.println("Run #" + run + "." + i + " (" +  verificationStrategy + ")");
             statistics.add(Shell.verifyFeatureIDEProject(verificationSystemSupplier.apply(run + "." + i),
-                    verificationGraph, verificationStrategy, focusOnMethod));
+                    proofGraph, verificationStrategy, focusOnMethod));
         }
         HashMap<String, List<Integer>> statisticsMap = Core.VerificationAttempt.getStatisticsMap(statistics);
         statisticsMap.forEach(
@@ -80,22 +80,22 @@ public class Shell {
 
     static HashMap<String, List<Integer>> verifyFeatureIDEProject(
             Core.VerificationSystem verificationSystem,
-            Core.VerificationGraph verificationGraph,
+            Core.ProofGraph proofGraph,
             Main.VerificationStrategy verificationStrategy,
             String focusOnMethod) {
         if (verificationStrategy instanceof Main.VerificationStrategy.FamilyBased)
             return verifyFamilyBased(
                     ((Main.VerificationStrategy.FamilyBased) verificationStrategy).path, verificationSystem);
-        Utils.render(verificationGraph.toDot(), verificationSystem.path, "verificationGraph");
-        Core.VerificationPlan verificationPlan = verificationStrategy.verificationPlan();
-        Utils.render(verificationPlan.toDot(), verificationSystem.path, "verificationPlan");
-        Core.VerificationAttempt verificationAttempt = verificationPlan.verificationAttempt(verificationSystem);
+        Utils.render(proofGraph.toDot(), verificationSystem.path, "proofGraph");
+        Core.ProofPlan proofPlan = verificationStrategy.proofPlan();
+        Utils.render(proofPlan.toDot(), verificationSystem.path, "proofPlan");
+        Core.VerificationAttempt verificationAttempt = proofPlan.verificationAttempt(verificationSystem);
         verificationAttempt.verify(focusOnMethod);
         if (!verificationAttempt.isCorrect()) {
             System.out.println("Failed proofs:");
             verificationAttempt.failedProofs().forEach(System.out::println);
         }
-        return verificationAttempt.getStatisticsMap(verificationGraph.completeNodeOccurrences);
+        return verificationAttempt.getStatisticsMap(proofGraph.completeNodeOccurrences);
     }
 
     static HashMap<String, List<Integer>> verifyFamilyBased(Path path, Core.VerificationSystem verificationSystem) {
