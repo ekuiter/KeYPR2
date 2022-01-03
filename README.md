@@ -14,7 +14,7 @@ This implementation of proof plans allows for several concrete verification stra
 
 ### How to Use
 
-- We provide our case study and evaluation results in the `caseStudy` directory. To reproduce our results, unzip `caseStudy.zip` and run the `evaluate` script (requires JRE 1.8).
+- We provide our case study and evaluation results in the `caseStudy` directory. To reproduce our results, unzip `caseStudy.zip` and run the `evaluate` script (requires JRE 1.8 and possibly `dos2unix evaluate` under Linux systems).
 - Our implementation is based on KeY 2.8.0 (vanilla version). We do not rely on abstract contracts or uninterpreted predicates, but implement partial proofs with abstract model methods [[1]](#references).
 - The `KeYBridge` class implements the interface to KeY. Our programming model, proof graphs/plans, and partial proof system are all implemented in the `Core` class. The `Shell` class addresses code parsing and evaluation concerns.
 - A pre-built and self-contained JAR file is available in the `evaluation/caseStudy.zip` archive. Run `java -jar KeYPl.jar` to see its usage.
