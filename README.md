@@ -2,7 +2,7 @@
 
 **KeY for Proof Plans**
 
-*[VaMoS 2022 Paper](https://wwwiti.cs.uni-magdeburg.de/iti_db/publikationen/ps/auto/Kuiter:VaMoS22.pdf) | [VaMoS 2022 Presentation](https://github.com/ekuiter/KeYPl/blob/master/VaMoS%202022%20Presentation.pdf)*
+**[VaMoS 2022 Paper](https://wwwiti.cs.uni-magdeburg.de/iti_db/publikationen/ps/auto/Kuiter:VaMoS22.pdf)** | **[VaMoS 2022 Presentation](https://github.com/ekuiter/KeYPl/blob/master/VaMoS%202022%20Presentation.pdf)**
 
 This is a frontend to the [KeY verification system](http://key-project.org) [[1]](#references) for efficiently evaluating the correctness of feature-oriented software product lines.
 
