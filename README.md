@@ -11,7 +11,7 @@ The correctness of all method variants in an SPL can be verified with the KeY ve
 However, to check an entire SPL, this approach checks all its product individually, which is inefficient for large SPLs (product-based analysis).
 
 With our approach as implemented in KeYPl, we can avoid checking each product of an SPL in isolation.
-To do this, we use *proof plans*, which cache proofs systematically so that we can reuse them for several configurations of an SPL [[2]](#references).
+To do this, we use *proof plans*, which cache proofs systematically so that we can reuse them for several configurations of an SPL [[2, 3]](#references).
 This implementation of proof plans allows for several concrete verification strategies, including feature-(product-/family-)based approaches.
 
 ### How to Use
@@ -36,3 +36,4 @@ Feel free to [contact me](mailto:kuiter@ovgu.de) (the main developer) if you hav
 
 1. Wolfgang Ahrendt, Bernhard Beckert; Richard Bubel; Reiner Hähnle; Peter H. Schmitt, and Mattias Ulbrich. 2016. [Deductive Software Verification - The KeY Book - From Theory to Practice](https://www.key-project.org/thebook2/). Springer.
 2. Elias Kuiter. 2020. [Proof Repositories for Correct-by-Construction Software Product Lines](http://wwwiti.cs.uni-magdeburg.de/iti_db/publikationen/ps/auto/Kuiter2020:MasterThesis.pdf). Otto-von-Guericke-University Magdeburg.
+3. Elias Kuiter, Alexander Knüppel, Tabea Bordis, Tobias Runge, and Ina Schaefer. [Verification Strategies for Feature-Oriented Software Product Lines](http://wwwiti.cs.uni-magdeburg.de/iti_db/publikationen/ps/auto/Kuiter:VaMoS22.pdf). In Proceedings of the International Working Conference on Variability Modelling of Software-Intensive Systems (VaMoS), February 2022.
